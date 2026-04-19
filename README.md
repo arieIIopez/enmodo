@@ -86,6 +86,22 @@ Salidas:
 - `fact_mobility_coefficient.csv`
 - `fact_mobility_gap.csv`
 
+## Dashboard territorial (estilo ejecutivo de movilidad)
+
+Se implementó una app en Streamlit en `dashboard/app.py` con:
+
+- KPIs de viajes y tiempo.
+- Filtros por ciudad/año y sexo.
+- Coeficiente de Movilidad (11 indicadores).
+- Brecha mujer-hombre.
+- Top flujos origen-destino.
+
+Ejecutar:
+
+```bash
+streamlit run dashboard/app.py
+```
+
 # Fuentes
 
 ### Bogotá
