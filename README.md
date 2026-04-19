@@ -95,6 +95,7 @@ Se implementó una app en Streamlit en `dashboard/app.py` con:
 - Coeficiente de Movilidad (11 indicadores).
 - Brecha mujer-hombre.
 - Top flujos origen-destino.
+- Mapa interactivo con Mapbox GL JS (token + estilo configurables en sidebar).
 
 Ejecutar:
 

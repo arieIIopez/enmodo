@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import glob
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import streamlit.components.v1 as components
 
 from scripts.mobility_coefficient import build_gap_table, build_indicator_table, build_person_day, infer_columns
 
@@ -102,6 +103,35 @@ def build_od(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     return out.head(20)
 
 
+def build_geojson_points(df: pd.DataFrame, max_points: int = 5000) -> Optional[dict]:
+    lon_candidates = ["LONGITUD_ORIGEN", "OrigenCoordX", "co_o_x", "origin_lon", "lon_origen", "LON_ORIGEN"]
+    lat_candidates = ["LATITUD_ORIGEN", "OrigenCoordY", "co_o_y", "origin_lat", "lat_origen", "LAT_ORIGEN"]
+
+    lon_col = next((c for c in lon_candidates if c in df.columns), None)
+    lat_col = next((c for c in lat_candidates if c in df.columns), None)
+    if not lon_col or not lat_col:
+        return None
+
+    geo = df[[lon_col, lat_col, "sex_group"]].copy()
+    geo[lon_col] = pd.to_numeric(geo[lon_col], errors="coerce")
+    geo[lat_col] = pd.to_numeric(geo[lat_col], errors="coerce")
+    geo = geo[(geo[lon_col].between(-180, 180)) & (geo[lat_col].between(-90, 90))]
+    if geo.empty:
+        return None
+
+    geo = geo.head(max_points)
+    features = []
+    for _, row in geo.iterrows():
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [float(row[lon_col]), float(row[lat_col])]},
+                "properties": {"sex_group": row["sex_group"]},
+            }
+        )
+    return {"type": "FeatureCollection", "features": features}
+
+
 st.title("🗺️ Dashboard Territorial de Movilidad")
 st.caption("Estilo ejecutivo inspirado en paneles de movilidad urbana. Incluye enfoque de género y coeficiente de movilidad.")
 
@@ -114,6 +144,12 @@ if not trip_files:
 file_options = {f"{infer_city_year(f)['city']} · {infer_city_year(f)['year']} ({f})": f for f in trip_files}
 selected_label = st.sidebar.selectbox("Ciudad / Año", list(file_options.keys()))
 selected_file = file_options[selected_label]
+mapbox_token = st.sidebar.text_input("Mapbox token", value="", type="password", help="Pega tu token público de Mapbox aquí.")
+mapbox_style = st.sidebar.text_input(
+    "Map style",
+    value="mapbox://styles/mapbox/dark-v11",
+    help="Puedes usar un estilo de Mapbox o un style URL propio.",
+)
 
 raw = pd.read_csv(selected_file)
 config = infer_columns(raw)
@@ -170,5 +206,57 @@ if od is None or od.empty:
 else:
     fig = px.bar(od.head(15), x="n_viajes", y=od.head(15).apply(lambda r: f"{r['origen']} → {r['destino']}", axis=1), orientation="h", title="Top 15 flujos OD")
     st.plotly_chart(fig, use_container_width=True)
+
+st.subheader("Mapa de viajes (Mapbox GL JS)")
+geojson = build_geojson_points(filtered)
+if geojson is None:
+    st.info("No se detectaron columnas de coordenadas válidas para renderizar el mapa.")
+else:
+    if not mapbox_token:
+        st.warning("Falta token de Mapbox. Carga tu token en el panel lateral para habilitar el mapa.")
+
+    map_html = f"""
+    <link href='https://api.mapbox.com/mapbox-gl-js/v3.22.0/mapbox-gl.css' rel='stylesheet' />
+    <script src='https://api.mapbox.com/mapbox-gl-js/v3.22.0/mapbox-gl.js'></script>
+    <div id='mapbox-map' style='width: 100%; height: 560px; border-radius: 12px;'></div>
+    <script>
+      mapboxgl.accessToken = {json.dumps(mapbox_token)};
+      const geojson = {json.dumps(geojson)};
+      const map = new mapboxgl.Map({{
+        container: 'mapbox-map',
+        style: {json.dumps(mapbox_style)},
+        center: [-74.07, 4.65],
+        zoom: 10,
+        attributionControl: true
+      }});
+
+      map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+      map.on('load', () => {{
+        map.addSource('trips-points', {{ type: 'geojson', data: geojson }});
+        map.addLayer({{
+          id: 'trips-points-layer',
+          type: 'circle',
+          source: 'trips-points',
+          paint: {{
+            'circle-radius': 3.5,
+            'circle-opacity': 0.75,
+            'circle-color': [
+              'match',
+              ['get', 'sex_group'],
+              'hombre', '#60a5fa',
+              'mujer', '#f472b6',
+              'otro', '#fbbf24',
+              '#9ca3af'
+            ]
+          }}
+        }});
+
+        const bounds = new mapboxgl.LngLatBounds();
+        geojson.features.forEach(f => bounds.extend(f.geometry.coordinates));
+        if (!bounds.isEmpty()) map.fitBounds(bounds, {{ padding: 40, duration: 0 }});
+      }});
+    </script>
+    """
+    components.html(map_html, height=590)
 
 st.markdown("<p class='small-note'>Tip: para una experiencia completa usa salidas `viajes_personas_*` materializadas con Git LFS.</p>", unsafe_allow_html=True)
