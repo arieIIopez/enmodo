@@ -62,6 +62,47 @@ Para posteriormente reemplazar `data_path` en vez del path del directorio local,
 
 > :warning: Las funcionalidades del paquete `AVES` solo pueden ejecutarse en Google Colab, por lo cual ciertas celdas que generan algunas de las visualizaciones de las notebooks pueden arrojar error al correrlas de manera local. Próximamente este issue quedará resuelto.
 
+## Coeficiente de Movilidad con perspectiva de género
+
+Se agregó el script `scripts/mobility_coefficient.py` para calcular los 11 indicadores del coeficiente de movilidad (enfoque inspirado en Gini) para:
+
+- población total,
+- hombres,
+- mujeres,
+- y brechas mujer-hombre.
+
+Ejemplo de uso:
+
+```bash
+python scripts/mobility_coefficient.py \
+  --input bogota/2019/csv/viajes_personas_bogota_2019.csv \
+  --output-dir bogota/2019/csv \
+  --city bogota \
+  --year 2019
+```
+
+Salidas:
+
+- `fact_mobility_coefficient.csv`
+- `fact_mobility_gap.csv`
+
+## Dashboard territorial (estilo ejecutivo de movilidad)
+
+Se implementó una app en Streamlit en `dashboard/app.py` con:
+
+- KPIs de viajes y tiempo.
+- Filtros por ciudad/año y sexo.
+- Coeficiente de Movilidad (11 indicadores).
+- Brecha mujer-hombre.
+- Top flujos origen-destino.
+- Mapa interactivo con Mapbox GL JS (token + estilo configurables en sidebar).
+
+Ejecutar:
+
+```bash
+streamlit run dashboard/app.py
+```
+
 # Fuentes
 
 ### Bogotá
