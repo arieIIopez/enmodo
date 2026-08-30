@@ -1,0 +1,79 @@
+study: Mexico City EOD 2017
+fieldwork:
+  start: '2017-01-23'
+  end: '2017-03-03'
+
+network_contract:
+  principle: >-
+    Never substitute a current network for a 2017 network without explicit versioning.
+    Each mode receives a source-quality tier and temporal-distance audit.
+
+  walking_and_street:
+    primary:
+      source: OpenStreetMap historical snapshot via ohsome API
+      timestamp: '2017-03-03T23:59:59Z'
+      role: pedestrian and street topology
+      confidence: high_for_historical_topology_subject_to_OSM_coverage
+      note: ohsome supports point-in-time OSM snapshots.
+    sensitivity:
+      timestamp: '2017-01-23T00:00:00Z'
+      purpose: bracket EOD fieldwork period
+
+  formal_public_transport:
+    candidate_primary:
+      source: CDMX open transport GTFS / SETRAVI-SEMOVI historical feed
+      url: https://s3.amazonaws.com/setravi/df_gtfs.zip
+      documentary_evidence_date: '2017-05-11'
+      evidence: >-
+        INEGI Anuario estadístico y geográfico de la Ciudad de México 2017 cites
+        this exact GTFS URL for the public-transport infrastructure map dated
+        11 May 2017. Contemporary technical source catalogs also list it as the
+        CDMX GTFS source.
+      temporal_distance_from_fieldwork_end_days: 69
+      status: candidate_until_artifact_is_archived_hashed_and_inspected
+      confidence: medium_high_for_topology_pending_feed_audit
+      forbidden_assumption: do_not_claim_May_2017_schedules_are_identical_to_Jan_Mar_2017
+
+  concessioned_public_transport:
+    candidate_primary:
+      source: Mapatón CDMX 2016 GTFS
+      source_record: http://datos.labcd.mx/dataset/mapaton-cdmx-gtfs/resource/828bb5f9-981a-46de-8640-f06d2506b25c
+      historical_gtfs_endpoint: https://public-api-dot-mapaton-public.appspot.com/getGtfs
+      license_record: http://opendatacommons.org/licenses/odbl/1.0/
+      reference_year: 2016
+      role: route/topology reconstruction for buses, microbuses and vans
+      status: candidate_until_artifact_is_archived_hashed_and_inspected
+      confidence: medium_for_route_topology; low_unknown_for_scheduled_headways_until_audit
+      note: >-
+        Mapatón was a crowdsourced mapping exercise supported by CDMX institutions
+        and released its resulting route data openly as GTFS. Use as historical
+        concessioned-route evidence, not as proof of exact frequencies unless the
+        recovered feed contains defensible schedule information.
+
+  integrated_modern_gtfs:
+    source: SEMOVI current integrated GTFS / Transitland archive
+    status: validation_only_not_2017_primary
+    reason: >-
+      The current CDMX open-data GTFS dataset was created in 2021, and the
+      Transitland integrated feed version inspected contains scheduled service
+      beginning in 2022. It must not be back-cast silently to 2017.
+
+  eod_observed_impedance:
+    source: EOD 2017 trip and stage travel times
+    role: calibration_and_external_validation_sensitivity
+    forbidden_role: primary_exogenous_network_impedance
+    reason: using observed travel outcomes as the primary network would make the accessibility measure endogenous to the behavior being evaluated.
+
+multimodal_priority:
+  - historical walking/street topology
+  - historical formal-transit topology and schedule if feed audit supports it
+  - Mapatón concessioned topology, with frequency assumptions separated
+  - EOD observed stage times only for calibration/validation
+
+acceptance_rules:
+  - Archive and hash every recovered historical network artifact before analysis.
+  - Report temporal distance between source date and EOD fieldwork.
+  - Separate topology confidence from schedule/headway confidence.
+  - Do not use Cablebús, post-2017 routes, or later infrastructure in the primary 2017 graph.
+  - Report coverage by mode and geography before computing accessibility.
+  - Run sensitivity with and without uncertain concessioned services.
