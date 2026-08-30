@@ -1,0 +1,81 @@
+name: CM Tier A.2 OSM road network 2017
+
+on:
+  push:
+    branches:
+      - research/cm-tier-a
+    paths:
+      - .github/workflows/cm-tier-a2-osm-2017.yml
+  workflow_dispatch:
+
+jobs:
+  build-historical-road-core:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Geofabrik Mexico 2017-01-01 shapefile snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://download.geofabrik.de/north-america'
+          curl -fL --retry 5 --retry-delay 2 "$base/mexico-170101-free.shp.zip" -o mexico-170101-free.shp.zip
+          curl -fL --retry 5 --retry-delay 2 "$base/mexico-170101-free.shp.zip.md5" -o mexico-170101-free.shp.zip.md5
+          cat mexico-170101-free.shp.zip.md5
+          md5sum -c mexico-170101-free.shp.zip.md5
+
+      - name: Extract road layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p roads_src
+          unzip -j mexico-170101-free.shp.zip 'gis_osm_roads_free_1.*' -d roads_src
+          ls -lh roads_src
+
+      - name: Clip to EOD metropolitan analysis envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet geopandas pyogrio
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import geopandas as gpd
+          from shapely.geometry import box
+
+          src = Path('roads_src/gis_osm_roads_free_1.shp')
+          g = gpd.read_file(src)
+          if g.crs is None:
+              g = g.set_crs(4326)
+          else:
+              g = g.to_crs(4326)
+
+          # Exact EOD districts span approximately lon [-99.650,-98.597], lat [18.935,20.068].
+          # Add a fixed preregistered-style network buffer to avoid cutting plausible shortest paths.
+          bbox = box(-99.75, 18.85, -98.50, 20.15)
+          c = g[g.geometry.intersects(bbox)].copy()
+          c = c[c.geometry.notna() & ~c.geometry.is_empty].copy()
+          outdir = Path('osm-2017-road-core')
+          outdir.mkdir(exist_ok=True)
+          gpkg = outdir/'mexico_city_eod_roads_20170101.gpkg'
+          c.to_file(gpkg, layer='roads', driver='GPKG')
+          h = hashlib.sha256(gpkg.read_bytes()).hexdigest()
+          (outdir/'SHA256SUMS').write_text(f'{h}  {gpkg.name}\n', encoding='utf-8')
+          meta = [
+              'source=https://download.geofabrik.de/north-america/mexico-170101-free.shp.zip',
+              'snapshot=2017-01-01',
+              'bbox=-99.75,18.85,-98.50,20.15',
+              f'rows={len(c)}',
+              f'crs={c.crs}',
+          ]
+          (outdir/'METADATA.txt').write_text('\n'.join(meta)+'\n', encoding='utf-8')
+          if 'fclass' in c.columns:
+              c.groupby('fclass').size().rename('n').sort_values(ascending=False).to_csv(outdir/'fclass_counts.csv')
+          print('\n'.join(meta))
+          PY
+
+      - name: Upload historical road core
+        uses: actions/upload-artifact@v4
+        with:
+          name: mexico-eod-osm-roads-20170101
+          path: osm-2017-road-core/
+          if-no-files-found: error
+          retention-days: 7
