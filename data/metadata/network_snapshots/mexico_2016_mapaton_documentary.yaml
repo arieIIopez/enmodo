@@ -1,0 +1,55 @@
+snapshot_id: mexico_2016_mapaton_documentary
+city_id: mexico_city_zmvm
+target_date: '2017-03-03'
+source_date: '2016-01-01'
+source_name: Mapatón CDMX 2016 GTFS
+source_type: gtfs_route_topology
+source_url: https://public-api-dot-mapaton-public.appspot.com/getGtfs
+preservation_url: null
+artifact_sha256: null
+artifact_status: documented_only
+temporal_distance_days: 427
+service_date_start: null
+service_date_end: null
+modes:
+  - bus_concessioned
+  - microbus
+  - van_concessioned
+geography:
+  study_area_id: zmvm_eod_2017
+  coverage_description: >-
+    Crowdsourced mapping of concessioned public transport in CDMX. Documentary sources
+    confirm open GTFS publication; exact recovered artifact coverage remains pending.
+  crs: null
+information_content:
+  topology: true
+  stops: true
+  routes: true
+  shapes: true
+  schedules: false
+  calendars: false
+  frequencies: false
+  observed_travel_times: false
+confidence:
+  temporal: medium
+  topology: medium
+  schedule: unknown
+  frequency: unknown
+  notes: >-
+    Information-content flags describe the documented Mapatón product concept and must be
+    replaced by binary-audit evidence if an archived GTFS artifact is recovered. The
+    source_date is represented only at year level and therefore temporal_distance_days is
+    conservative metadata, not a precise acquisition-date distance.
+transformation:
+  code_version: null
+  description: No recovered binary has been admitted to ENMODO.
+  generated_artifact_sha256: null
+validation:
+  population_connected_share: null
+  opportunity_connected_share: null
+  modeled_vs_observed_time_summary: null
+  known_coverage_gaps:
+    - Exact historical GTFS binary has not yet been recovered from a stable archive.
+    - Exact route count, schedules and frequencies must not be inferred from documentary references alone.
+admissible_roles:
+  - documentary_only
