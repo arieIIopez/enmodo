@@ -20,19 +20,45 @@ network_contract:
       purpose: bracket EOD fieldwork period
 
   formal_public_transport:
-    candidate_primary:
+    primary_archive:
+      source: TransitFeeds/OpenMobilityData historical archive migrated to Mobility Database
+      mobility_database_feed_id: tfs-70
+      transitfeeds_external_id: mexico-city-federal-district-government/70
+      archived_at: '2017-03-21'
+      temporal_distance_from_fieldwork_end_days: 18
+      service_range:
+        start: '2016-06-07'
+        end: '2017-12-30'
+      archive_url: https://openmobilitydata-data.s3.us-west-1.amazonaws.com/public/feeds/mexico-city-federal-district-government/70/20170321/gtfs.zip
+      status: preserved_binary_identified_not_yet_materialized_in_execution_environment
+      confidence:
+        temporal_relevance: high
+        topology: pending_feed_audit
+        schedule: pending_feed_audit
+        frequency: pending_feed_audit
+      note: >-
+        This is the closest preserved historical snapshot currently identified. It was
+        archived 18 days after EOD fieldwork ended and its declared service range covers
+        the entire EOD fieldwork period. The binary must still be downloaded, hashed and
+        inspected before any GTFS field is admitted as network impedance.
+    institutional_corrobation:
       source: CDMX open transport GTFS / SETRAVI-SEMOVI historical feed
-      url: https://s3.amazonaws.com/setravi/df_gtfs.zip
+      historical_url: https://s3.amazonaws.com/setravi/df_gtfs.zip
       documentary_evidence_date: '2017-05-11'
       evidence: >-
         INEGI Anuario estadístico y geográfico de la Ciudad de México 2017 cites
         this exact GTFS URL for the public-transport infrastructure map dated
-        11 May 2017. Contemporary technical source catalogs also list it as the
-        CDMX GTFS source.
+        11 May 2017. A technical GTFS source catalog from the same period lists the
+        same producer URL and the same TransitFeeds-era Mexico City source.
       temporal_distance_from_fieldwork_end_days: 69
-      status: candidate_until_artifact_is_archived_hashed_and_inspected
-      confidence: medium_high_for_topology_pending_feed_audit
+      role: independent_documentary_corroboration_of_historical_feed_identity
       forbidden_assumption: do_not_claim_May_2017_schedules_are_identical_to_Jan_Mar_2017
+    archive_history:
+      mobility_database_note: >-
+        Historical TransitFeeds data were migrated to Mobility Database. The tfs-70 page
+        exposes snapshots on 2016-02-24, 2016-06-09, 2017-03-21, 2017-09-02,
+        2017-12-30 and later dates.
+      preferred_snapshot_rule: closest_snapshot_after_fieldwork_that_covers_fieldwork_service_dates
 
   concessioned_public_transport:
     candidate_primary:
@@ -42,13 +68,17 @@ network_contract:
       license_record: http://opendatacommons.org/licenses/odbl/1.0/
       reference_year: 2016
       role: route/topology reconstruction for buses, microbuses and vans
-      status: candidate_until_artifact_is_archived_hashed_and_inspected
-      confidence: medium_for_route_topology; low_unknown_for_scheduled_headways_until_audit
+      status: documentary_source_resolved_binary_archive_not_yet_identified
+      confidence:
+        route_topology: medium_pending_artifact_audit
+        schedule: low_unknown
+        frequency: low_unknown
       note: >-
         Mapatón was a crowdsourced mapping exercise supported by CDMX institutions
         and released its resulting route data openly as GTFS. Use as historical
-        concessioned-route evidence, not as proof of exact frequencies unless the
-        recovered feed contains defensible schedule information.
+        concessioned-route evidence, not as proof of exact frequencies unless a
+        recovered feed contains defensible schedule information. No separate preserved
+        Mobility Database/TransitFeeds artifact has yet been identified.
 
   integrated_modern_gtfs:
     source: SEMOVI current integrated GTFS / Transitland archive
@@ -66,7 +96,7 @@ network_contract:
 
 multimodal_priority:
   - historical walking/street topology
-  - historical formal-transit topology and schedule if feed audit supports it
+  - preserved 2017 formal-transit GTFS snapshot after artifact audit
   - Mapatón concessioned topology, with frequency assumptions separated
   - EOD observed stage times only for calibration/validation
 
@@ -77,3 +107,4 @@ acceptance_rules:
   - Do not use Cablebús, post-2017 routes, or later infrastructure in the primary 2017 graph.
   - Report coverage by mode and geography before computing accessibility.
   - Run sensitivity with and without uncertain concessioned services.
+  - Do not promote the 2017-03-21 archive to usable network input until its binary is materialized and audited.
