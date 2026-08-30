@@ -1,0 +1,49 @@
+dataset: DENUE
+release: '2017-03'
+primary_source:
+  institution: INEGI
+  product: Directorio Estadístico Nacional de Unidades Económicas
+  release_date: '2017-03-31'
+  urls:
+    '09': https://www.inegi.org.mx/contenidos/masiva/denue/2017_03/denue_09_0317_csv.zip
+    '13': https://www.inegi.org.mx/contenidos/masiva/denue/2017_03/denue_13_0317_csv.zip
+    '15': https://www.inegi.org.mx/contenidos/masiva/denue/2017_03/denue_15_0317_csv.zip
+technical_mirror:
+  project: CentroFuturoCiudades/mxcensus
+  bucket: gperaza/mxcensus
+  note: Unofficial reproducible mirror; INEGI remains the primary source.
+  artifacts:
+    '09':
+      filename: denue_201703_09.parquet
+      url: https://huggingface.co/buckets/gperaza/mxcensus/resolve/denue_201703_09.parquet
+      sha256: c808122adbb8ba9360a6b175c2a8ad58d30daea594c055d889524b389a47d809
+    '13':
+      filename: denue_201703_13.parquet
+      url: https://huggingface.co/buckets/gperaza/mxcensus/resolve/denue_201703_13.parquet
+      sha256: 27b0937bddb6131d3c9bcc825489725bd73363366dc7868be40a3a58174aaf35
+    '15':
+      filename: denue_201703_15.parquet
+      url: https://huggingface.co/buckets/gperaza/mxcensus/resolve/denue_201703_15.parquet
+      sha256: ad3ae1e3fe4353c3f7dbd01afbc2bfc66a6a17f412fc40bd283454daa44318e7
+analysis_contract:
+  eod: Mexico City 2017 EOD
+  temporal_budgets_min: [15, 30, 45, 60, 90]
+  scian_primary:
+    education: ['61']
+    health_social_assistance: ['62']
+    arts_entertainment_recreation: ['71']
+  scian_sensitivity:
+    expanded_social_leisure: ['71', '72']
+  opportunity_unit_primary: establishment_count
+  employment_weighting: sensitivity_only
+  spatial_scope: ZMVM EOD 2017 study area
+  tier_a1_impedance: geometric_development_only
+  tier_a2_impedance: historical_transport_network_required
+  primary_scalar_summary: null
+  auc_primary: false
+acceptance_rules:
+  - Reject any local artifact whose SHA-256 differs from the manifest.
+  - Preserve original coordinates and report invalid or repaired geometries.
+  - Do not expand the SCIAN ontology after inspecting results without versioning a new specification.
+  - Do not treat Tier A.1 geometric impedance as confirmatory transport accessibility.
+  - Do not derive a scalar CM unless primal/dual curve comparisons support a stable, non-redundant summary.
