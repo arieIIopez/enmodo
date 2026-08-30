@@ -1,0 +1,44 @@
+name: CM Tier A DENUE 2017
+
+on:
+  push:
+    branches:
+      - research/cm-tier-a
+    paths:
+      - .github/workflows/cm-tier-a-denue-2017.yml
+  workflow_dispatch:
+
+jobs:
+  fetch-denue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download preregistered DENUE 03/2017 GeoParquet
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p denue-201703
+          base='https://huggingface.co/buckets/gperaza/mxcensus/resolve'
+          curl -fL --retry 5 --retry-delay 2 "$base/denue_201703_09.parquet" -o denue-201703/denue_201703_09.parquet
+          curl -fL --retry 5 --retry-delay 2 "$base/denue_201703_13.parquet" -o denue-201703/denue_201703_13.parquet
+          curl -fL --retry 5 --retry-delay 2 "$base/denue_201703_15.parquet" -o denue-201703/denue_201703_15.parquet
+
+      - name: Verify preregistered SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd denue-201703
+          printf '%s  %s\n' \
+            'c808122adbb8ba9360a6b175c2a8ad58d30daea594c055d889524b389a47d809' 'denue_201703_09.parquet' \
+            '27b0937bddb6131d3c9bcc825489725bd73363366dc7868be40a3a58174aaf35' 'denue_201703_13.parquet' \
+            'ad3ae1e3fe4353c3f7dbd01afbc2bfc66a6a17f412fc40bd283454daa44318e7' 'denue_201703_15.parquet' \
+            > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          ls -lh
+
+      - name: Upload verified research artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: denue-201703-tier-a
+          path: denue-201703/
+          if-no-files-found: error
+          retention-days: 7
