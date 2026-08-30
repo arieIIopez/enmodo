@@ -1,0 +1,52 @@
+snapshot_id: mexico_2017_formal_gtfs_20170321
+city_id: mexico_city_zmvm
+target_date: '2017-03-03'
+source_date: '2017-03-21'
+source_name: Mexico City GTFS — TransitFeeds/OpenMobilityData historical snapshot
+source_type: gtfs_schedule
+source_url: https://s3.amazonaws.com/setravi/df_gtfs.zip
+preservation_url: https://openmobilitydata-data.s3.us-west-1.amazonaws.com/public/feeds/mexico-city-federal-district-government/70/20170321/gtfs.zip
+artifact_sha256: null
+artifact_status: preserved_identified
+temporal_distance_days: 18
+service_date_start: '2016-06-07'
+service_date_end: '2017-12-30'
+modes:
+  - public_transport_formal
+geography:
+  study_area_id: zmvm_eod_2017
+  coverage_description: Historical Mexico City formal/open-transport feed; exact modal and geographic coverage pending binary audit.
+  crs: null
+information_content:
+  topology: true
+  stops: true
+  routes: true
+  shapes: false
+  schedules: true
+  calendars: true
+  frequencies: false
+  observed_travel_times: false
+confidence:
+  temporal: high
+  topology: unknown
+  schedule: unknown
+  frequency: unknown
+  notes: >-
+    Snapshot was archived 18 days after fieldwork ended and declares a service range
+    spanning the complete EOD fieldwork period. Structural flags above reflect the GTFS
+    feed class/history and MUST be replaced by actual binary-audit results after
+    materialization. Shapes/frequencies remain false until directly observed.
+transformation:
+  code_version: null
+  description: Not transformed; binary not yet materialized in the current execution environment.
+  generated_artifact_sha256: null
+validation:
+  population_connected_share: null
+  opportunity_connected_share: null
+  modeled_vs_observed_time_summary: null
+  known_coverage_gaps:
+    - Concessioned Mapatón network is a separate historical source and is not assumed to be included.
+    - Exact agencies, modes, schedules, frequencies and shapes require GTFS ZIP inspection.
+admissible_roles:
+  - documentary_only
+  - validation
