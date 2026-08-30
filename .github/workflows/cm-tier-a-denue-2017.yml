@@ -33,12 +33,97 @@ jobs:
             'ad3ae1e3fe4353c3f7dbd01afbc2bfc66a6a17f412fc40bd283454daa44318e7' 'denue_201703_15.parquet' \
             > SHA256SUMS
           sha256sum -c SHA256SUMS
-          ls -lh
 
-      - name: Upload verified research artifact
+      - name: Create analysis-core CSV without altering source data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pyarrow pandas
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import pandas as pd
+          import pyarrow.parquet as pq
+
+          root = Path('denue-201703')
+          files = [root/'denue_201703_09.parquet', root/'denue_201703_13.parquet', root/'denue_201703_15.parquet']
+          frames = []
+          schemas = []
+          aliases = {
+              'codigo_act': ['codigo_act','CODIGO_ACT','Código de la clase de actividad SCIAN','Código de la clase de actividad'],
+              'nombre_act': ['nombre_act','NOMBRE_ACT','Nombre de clase de la actividad','Nombre de la clase de actividad'],
+              'per_ocu': ['per_ocu','PER_OCU','Personal ocupado (estrato)','Descripcion estrato personal ocupado','Descripción de estrato de personal ocupado'],
+              'latitud': ['latitud','LATITUD','Latitud'],
+              'longitud': ['longitud','LONGITUD','Longitud'],
+              'cve_ent': ['cve_ent','CVE_ENT','Clave entidad'],
+              'cve_mun': ['cve_mun','CVE_MUN','Clave municipio'],
+              'municipio': ['municipio','MUNICIPIO','Municipio'],
+              'id': ['id','ID','clee','CLEE','Llave DENUE'],
+          }
+
+          for p in files:
+              schema = pq.read_schema(p)
+              names = schema.names
+              schemas.append(f"{p.name}: {names}")
+              resolved = {}
+              for out, candidates in aliases.items():
+                  resolved[out] = next((c for c in candidates if c in names), None)
+              required = ['codigo_act','latitud','longitud','cve_ent','cve_mun']
+              missing = [k for k in required if not resolved[k]]
+              if missing:
+                  raise RuntimeError(f"{p.name}: missing required fields {missing}; schema={names}")
+              cols = sorted({v for v in resolved.values() if v})
+              df = pq.read_table(p, columns=cols).to_pandas()
+              ren = {src: out for out, src in resolved.items() if src}
+              df = df.rename(columns=ren)
+              for c in aliases:
+                  if c not in df.columns:
+                      df[c] = pd.NA
+              df['source_file'] = p.name
+              df['codigo_act'] = df['codigo_act'].astype('string')
+              df['cve_ent'] = df['cve_ent'].astype('string').str.zfill(2)
+              df['cve_mun'] = df['cve_mun'].astype('string').str.zfill(3)
+              df['latitud'] = pd.to_numeric(df['latitud'], errors='coerce')
+              df['longitud'] = pd.to_numeric(df['longitud'], errors='coerce')
+              frames.append(df[['source_file','id','cve_ent','cve_mun','municipio','codigo_act','nombre_act','per_ocu','latitud','longitud']])
+
+          out = pd.concat(frames, ignore_index=True)
+          out = out.dropna(subset=['latitud','longitud','codigo_act'])
+          dest = root/'denue_201703_core.csv.gz'
+          out.to_csv(dest, index=False, compression='gzip')
+          (root/'PARQUET_SCHEMAS.txt').write_text('\n'.join(schemas), encoding='utf-8')
+          h = hashlib.sha256(dest.read_bytes()).hexdigest()
+          (root/'DERIVED_SHA256SUMS').write_text(f"{h}  {dest.name}\n", encoding='utf-8')
+          summary = (
+              out.assign(sector=out['codigo_act'].str[:2])
+                 .groupby(['cve_ent','sector'], dropna=False)
+                 .size().rename('n').reset_index()
+          )
+          summary.to_csv(root/'sector_counts.csv', index=False)
+          print(f"analysis-core rows={len(out):,}")
+          print(summary[summary['sector'].isin(['61','62','71','72'])].to_string(index=False))
+          PY
+
+      - name: Upload verified source artifact
         uses: actions/upload-artifact@v4
         with:
           name: denue-201703-tier-a
-          path: denue-201703/
+          path: |
+            denue-201703/denue_201703_09.parquet
+            denue-201703/denue_201703_13.parquet
+            denue-201703/denue_201703_15.parquet
+            denue-201703/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload derived analysis-core artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: denue-201703-tier-a-core
+          path: |
+            denue-201703/denue_201703_core.csv.gz
+            denue-201703/PARQUET_SCHEMAS.txt
+            denue-201703/DERIVED_SHA256SUMS
+            denue-201703/sector_counts.csv
           if-no-files-found: error
           retention-days: 7
