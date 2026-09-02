@@ -50,6 +50,7 @@ jobs:
       - name: Run Paper I methodological tests
         run: |
           python -m pytest -q \
+            --junitxml=paper1-pytest.xml \
             tests/test_scalar_compressibility.py \
             tests/test_reference_distributions.py \
             tests/test_mobility_function.py \
@@ -57,4 +58,16 @@ jobs:
             tests/test_person_universe.py \
             tests/test_paper1_adapters.py \
             tests/test_survey_bootstrap.py \
-            tests/test_kitagawa_mobility.py
+            tests/test_kitagawa_mobility.py \
+            2>&1 | tee paper1-pytest.log
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper1-pytest-diagnostics
+          path: |
+            paper1-pytest.xml
+            paper1-pytest.log
+          if-no-files-found: warn
+          retention-days: 7
