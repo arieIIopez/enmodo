@@ -52,7 +52,8 @@ def test_mexico_excludes_saturday_and_counts_regresar_al_hogar_as_return():
 def test_bogota_uses_workday_and_home_return_semantics():
     trips = pd.DataFrame(
         {
-            "ID_PERSONA": [100, 100, 100, 200],
+            "ID_ENCUESTA": [10, 10, 10, 20],
+            "NUMERO_PERSONA": [1, 1, 1, 1],
             "NUMERO_VIAJE": [1, 2, 3, 1],
             "duracion_minutos": [30, 15, 25, 100],
             "MOTIVOVIAJE": ["Trabajar", "Compras", "Volver a casa", "Trabajar"],
@@ -63,6 +64,7 @@ def test_bogota_uses_workday_and_home_return_semantics():
     out, audit = build_bogota_2015_person_days(trips)
     assert audit.selected_persons == 1
     row = out.iloc[0]
+    assert row.person_id == "10::1"
     assert row.t_minutes == 70
     assert row.r == 2
 
@@ -70,7 +72,8 @@ def test_bogota_uses_workday_and_home_return_semantics():
 def test_bogota_duplicate_trip_within_person_raises():
     trips = pd.DataFrame(
         {
-            "ID_PERSONA": [100, 100],
+            "ID_ENCUESTA": [10, 10],
+            "NUMERO_PERSONA": [1, 1],
             "NUMERO_VIAJE": [1, 1],
             "duracion_minutos": [30, 40],
             "MOTIVOVIAJE": ["Trabajar", "Volver a casa"],
