@@ -17,7 +17,7 @@ universe of each EOD, not from this module alone.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Sequence
 import unicodedata
 
 import numpy as np
@@ -37,6 +37,21 @@ def _normalize_text(value: object) -> str:
     text = str(value).strip().lower()
     text = unicodedata.normalize("NFKD", text)
     return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
+EXPLICIT_MISSING_PURPOSE_LABELS = {
+    "",
+    "sin informacion",
+    "sin info",
+    "no informado",
+    "no informa",
+    "no sabe",
+    "ns/nr",
+    "n/a",
+    "na",
+    "none",
+    "nan",
+}
 
 
 def _validate_required(df: pd.DataFrame, columns: PersonDayColumns) -> None:
@@ -59,6 +74,7 @@ def build_person_days_from_trips(
     columns: PersonDayColumns,
     home_return_values: Sequence[str],
     max_trip_minutes: float | None = None,
+    require_home_return_observed: bool = True,
 ) -> pd.DataFrame:
     """Aggregate a harmonised trip table to travelling person-days.
 
@@ -73,11 +89,13 @@ def build_person_days_from_trips(
         Explicit source-column mapping. No semantic column guessing is done.
     home_return_values:
         Explicit purpose labels meaning return/home destination. Matching is
-        case- and accent-insensitive after whitespace trimming. At least one
-        value is required; this decision must be city-adapter specific.
+        case- and accent-insensitive after whitespace trimming.
     max_trip_minutes:
         Optional explicit sensitivity filter. None means no upper-duration
         trimming. The historical `<150 min` rule is intentionally NOT a default.
+    require_home_return_observed:
+        Fail if none of the declared home-return labels is observed. This is a
+        guard against using an undecoded or wrongly mapped purpose column.
 
     Returns
     -------
@@ -89,8 +107,7 @@ def build_person_days_from_trips(
     -----
     - Person weights must be constant within person. Inconsistency raises.
     - Duplicate person-trip IDs raise; silent de-duplication is prohibited.
-    - Missing purpose/time/weight values raise because they prevent faithful
-      construction of the confirmatory variables.
+    - Missing or explicitly undecoded purpose labels raise.
     - This function does not infer diary validity beyond these checks.
     """
     _validate_required(trips, columns)
@@ -151,7 +168,18 @@ def build_person_days_from_trips(
 
     home_set = {_normalize_text(v) for v in home_return_values}
     df["_purpose_norm"] = df[columns.purpose].map(_normalize_text)
+    bad_purpose = df["_purpose_norm"].isin(EXPLICIT_MISSING_PURPOSE_LABELS)
+    if bad_purpose.any():
+        values = sorted(df.loc[bad_purpose, columns.purpose].astype(str).unique())[:10]
+        raise ValueError(f"purpose contains explicit missing/unmapped labels: {values}")
+
     df["_home_return"] = df["_purpose_norm"].isin(home_set)
+    if require_home_return_observed and not bool(df["_home_return"].any()):
+        observed = sorted(df[columns.purpose].astype(str).unique())[:20]
+        raise ValueError(
+            "none of the declared home-return labels was observed; purpose may be "
+            f"undecoded or mis-mapped. observed examples: {observed}"
+        )
     df["_activity_episode"] = (~df["_home_return"]).astype(int)
 
     grouped = (
