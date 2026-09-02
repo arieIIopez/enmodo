@@ -16,7 +16,7 @@ Bogotá 2019 queda fuera de la triada primaria. Se reserva como extensión longi
 
 Los resultados 2022 se consideran únicamente antecedentes históricos. No se reutilizarán como resultados del método nuevo.
 
-## 2. Archivos canónicos Git LFS
+## 2. Archivos canónicos de viajes/personas
 
 | ciudad-año | ruta canónica | LFS SHA-256 esperado | bytes esperados | rol |
 |---|---|---|---:|---|
@@ -25,9 +25,21 @@ Los resultados 2022 se consideran únicamente antecedentes históricos. No se re
 | Bogotá 2015 | `bogota/2015/output-csv/viajes_personas_bogota_2015.csv` | `4a43428f72b1e963d116083d366cfcaeb673ba4b338f21109f340525b35ad90a` | 55449326 | piloto primario |
 | Bogotá 2019 | `bogota/2019/csv/viajes_personas_bogota_2019.csv` | `0bb99370ab46496d97f0b1f217e6d5cd446efff1467e1bfbf90d4274c513cef8` | 54901849 | extensión longitudinal |
 
-El SHA-256 corresponde al `oid` de Git LFS y, por definición, permite verificar el contenido hidratado byte a byte.
+El SHA-256 corresponde al `oid` de Git LFS y permite verificar el contenido hidratado byte a byte.
 
-## 3. Duplicados que no deben usarse como fuente canónica
+## 3. Universos de personas para estimar no viajeros
+
+La tasa de no viajeros no se derivará de `viajes_personas`. Para cada ciudad se usará el universo de personas de la EOD:
+
+| ciudad-año | ruta | almacenamiento | identificador verificado | bytes |
+|---|---|---|---|---:|
+| Ciudad de México 2017 | `ciudad-de-mexico/source-csv/tsdem.csv` | Git LFS | SHA-256 `1b739929ef0207251c835870e29376a1066b53253b4b879f1f330c2622d8ce93` | 22649303 |
+| Santiago 2012 | `santiago/source-csv/personas.csv` | Git LFS | SHA-256 `57a5ae5631cc0a9ab61aa86ab48524b06f6a6c507cb3c696f23fe7d568b454fa` | 6862309 |
+| Bogotá 2015 | `bogota/2015/source-xlsx/encuesta 2015 - personas.xlsx` | blob Git regular | blob SHA-1 `252a4d99434ede490f0c9b2670bddfb25178f093` | 24555372 |
+
+El script `scripts/hydrate_paper1_lfs.sh` hidrata y verifica los dos universos LFS y comprueba el blob de Bogotá 2015.
+
+## 4. Duplicados que no deben usarse como fuente canónica
 
 El repositorio conserva copias históricas que no siempre son idénticas al archivo canónico.
 
@@ -47,7 +59,7 @@ Difiere del archivo canónico de `output-csv` y no debe mezclarse con él.
 
 Difiere en SHA-256 y tamaño respecto del archivo canónico aun cuando el nombre y contenido aparente sean casi equivalentes. La diferencia debe auditarse sólo si Bogotá 2019 entra en una fase posterior.
 
-## 4. Hallazgo de auditoría sobre G6 histórico
+## 5. Hallazgo de auditoría sobre G6 histórico
 
 El notebook histórico de Santiago construyó una tabla por persona mediante una consulta equivalente a:
 
@@ -78,19 +90,19 @@ P_{1i}=\#\{\text{episodios de actividad fuera del hogar observados}\}.
 
 CM-0 se reproducirá únicamente como benchmark histórico.
 
-## 5. Unidad y limitación de los archivos `viajes_personas`
+## 6. Unidad y limitación de los archivos `viajes_personas`
 
 Estos archivos son tablas de viajes enriquecidas con atributos de persona. Permiten reconstruir persona-día **entre personas que registran al menos un viaje**.
 
-No deben utilizarse por sí solos para estimar la tasa de no viajeros, porque una persona con cero viajes no genera una fila en una tabla de viajes. La proporción ponderada de no viajeros deberá recuperarse desde la tabla de personas de cada EOD o desde un adaptador que conserve explícitamente diarios `T=0`.
+No deben utilizarse por sí solos para estimar la tasa de no viajeros, porque una persona con cero viajes no genera una fila en una tabla de viajes. La proporción ponderada de no viajeros se recuperará desde los universos de personas indicados en la sección 3.
 
 Esta separación es obligatoria:
 
-- `T|P1` base: puede reconstruirse desde `viajes_personas` para viajeros;
-- tasa de no viajeros: requiere universo de personas;
+- `T|P1` base: se reconstruye desde `viajes_personas` para viajeros;
+- tasa de no viajeros: se estima desde el universo de personas;
 - una métrica poblacional que combine ambos componentes no se construirá hasta disponer de una regla teórica y de datos comparable.
 
-## 6. Contrato mínimo de reconstrucción persona-día
+## 7. Contrato mínimo de reconstrucción persona-día
 
 Para cada ciudad el adaptador debe identificar explícitamente:
 
@@ -111,7 +123,7 @@ Reglas confirmatorias:
 5. El ponderador de persona debe ser constante entre los viajes de una misma persona; las inconsistencias se consideran error de datos/adaptador.
 6. Los duplicados persona-viaje deben identificarse antes de agregar.
 
-## 7. Salidas obligatorias de la fase de reconstrucción
+## 8. Salidas obligatorias de la fase de reconstrucción
 
 Cada adaptador deberá producir una tabla persona-día con, al menos:
 
@@ -135,16 +147,17 @@ Además deberá producir un reporte QA con:
 - distribución de `P1`;
 - distribución de `T`;
 - variación del ponderador dentro de persona;
-- cobertura de variables de diseño muestral.
+- cobertura de variables de diseño muestral;
+- personas del universo sin viaje observado y su peso expandido.
 
-## 8. Secuencia de ejecución
+## 9. Secuencia de ejecución
 
-1. hidratar sólo los objetos LFS canónicos mediante `scripts/hydrate_paper1_lfs.sh`;
-2. verificar SHA-256 y tamaño;
-3. auditar esquema real de cada CSV;
+1. hidratar los objetos LFS canónicos mediante `scripts/hydrate_paper1_lfs.sh`;
+2. verificar SHA-256/tamaño y el blob de personas Bogotá 2015;
+3. auditar esquema real de cada tabla;
 4. fijar mapeos ciudad-específicos de propósito y retorno al hogar;
-5. reconstruir persona-día;
-6. recuperar no viajeros desde tabla de personas;
+5. reconstruir persona-día de viajeros con `scripts/person_day.py`;
+6. estimar no viajeros desde los universos de personas;
 7. calibrar soporte estimable ciudad × `P1`;
 8. congelar `P0^C`;
 9. estimar `m_c(p)`;
