@@ -1,0 +1,12 @@
+# Local analytical outputs
+outputs/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local environments
+.venv/
+venv/
+.env
