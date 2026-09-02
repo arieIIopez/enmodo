@@ -52,6 +52,19 @@ def _audit(city: str, before: pd.DataFrame, after: pd.DataFrame, person_col: str
     )
 
 
+def _composite_key(df: pd.DataFrame, columns: list[str]) -> pd.Series:
+    """Stable explicit composite key; avoids opaque arithmetic/string concatenation."""
+    parts = []
+    for col in columns:
+        if df[col].isna().any():
+            raise ValueError(f"composite key column {col!r} contains missing values")
+        parts.append(df[col].astype(str).str.strip())
+    key = parts[0]
+    for part in parts[1:]:
+        key = key + "::" + part
+    return key
+
+
 def prepare_santiago_2012(trips: pd.DataFrame) -> tuple[pd.DataFrame, AdapterAudit]:
     """Select Santiago normal working-day trips and map source semantics.
 
@@ -82,7 +95,6 @@ def prepare_santiago_2012(trips: pd.DataFrame) -> tuple[pd.DataFrame, AdapterAud
     if selected["Factor_LaboralNormal"].isna().any():
         raise ValueError(f"{city}: selected trips contain missing person working-day weights")
 
-    # If the legacy day label is present, use it only as a consistency check.
     if "DIA_HABIL" in selected.columns:
         inconsistent = ~selected["DIA_HABIL"].astype(str).str.casefold().isin(["si", "sí"])
         if inconsistent.any():
@@ -171,17 +183,23 @@ def build_mexico_2017_person_days(trips: pd.DataFrame) -> tuple[pd.DataFrame, Ad
             purpose="p5_13",
             person_weight="factor_y",
         ),
-        # Official INEGI EOD 2017 terminology.
         home_return_values=["Regresar al hogar"],
     )
     return person_days, audit
 
 
 def prepare_bogota_2015(trips: pd.DataFrame) -> tuple[pd.DataFrame, AdapterAudit]:
-    """Select Bogota 2015 working-day trips from the historical ENMODO output."""
+    """Select Bogota 2015 working-day trips with explicit composite person key.
+
+    The historical notebook created `ID_PERSONA` by concatenating
+    `ID_ENCUESTA + NUMERO_PERSONA`. The confirmatory adapter instead creates a
+    delimiter-separated composite key so that household/survey ID and person
+    number remain recoverable and collision-resistant.
+    """
     city = "Bogotá 2015"
     required = [
-        "ID_PERSONA",
+        "ID_ENCUESTA",
+        "NUMERO_PERSONA",
         "NUMERO_VIAJE",
         "duracion_minutos",
         "MOTIVOVIAJE",
@@ -196,12 +214,13 @@ def prepare_bogota_2015(trips: pd.DataFrame) -> tuple[pd.DataFrame, AdapterAudit
     if selected["PONDERADOR_CALIBRADO"].isna().any():
         raise ValueError(f"{city}: working-day trips contain missing person weights")
 
+    selected["_person_key"] = _composite_key(selected, ["ID_ENCUESTA", "NUMERO_PERSONA"])
     audit = _audit(
         city,
         trips,
         selected,
-        "ID_PERSONA",
-        notes="Primary universe: source records explicitly labelled DIA_HABIL=Si.",
+        "_person_key",
+        notes="Primary universe: DIA_HABIL=Si; person key=ID_ENCUESTA::NUMERO_PERSONA.",
     )
     return selected, audit
 
@@ -212,7 +231,7 @@ def build_bogota_2015_person_days(trips: pd.DataFrame) -> tuple[pd.DataFrame, Ad
         selected,
         city=audit.city,
         columns=PersonDayColumns(
-            person="ID_PERSONA",
+            person="_person_key",
             trip="NUMERO_VIAJE",
             time_minutes="duracion_minutos",
             purpose="MOTIVOVIAJE",
