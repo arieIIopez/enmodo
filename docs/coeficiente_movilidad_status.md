@@ -96,7 +96,9 @@ Comparaciones pareadas sobre soportes `P_ab` más amplios son admisibles como se
 
 ## 7. G6b
 
-El ejercicio G6b previo pasa a interpretarse como primera evidencia de sensibilidad de referencia / compresibilidad. Debe reejecutarse bajo la especificación actual:
+El ejercicio G6b previo pasa a interpretarse como antecedente histórico de sensibilidad de referencia / compresibilidad, pero **no puede reusarse como estimación de `T|P1`**. La auditoría de los notebooks originales mostró que el G6 histórico no medía tiempo total diario.
+
+La reejecución debe:
 
 1. reconstruir `P1`, `T` y ponderadores en las ciudades incluidas;
 2. auditar soporte efectivo;
@@ -120,30 +122,93 @@ Tier A se utiliza después de establecer el patrón `T|P1` y su robustez compara
 
 Tier A no define el coeficiente.
 
-## 9. Código creado en esta fase
+## 9. Código y documentación creados
 
 - `docs/scalar_compressibility.md`: especificación matemática y reglas de decisión.
+- `docs/paper1_data_manifest.md`: triada piloto, objetos canónicos, hashes, duplicados, universos de personas y contrato de reconstrucción.
 - `scripts/scalar_compressibility.py`: escalarización, deltas pareados, sobre robusto, clasificación y aristas de dominancia.
 - `scripts/reference_distributions.py`: referencias observadas por ciudad, mezcla igualitaria, stress test uniforme y cobertura del soporte.
 - `scripts/support_diagnostics.py`: diagnóstico de soporte y tamaño efectivo de Kish; sin thresholds implícitos.
 - `scripts/mobility_function.py`: estimación directa de `m_c(p)` y tasa separada de no viajeros.
-- `tests/test_scalar_compressibility.py`.
-- `tests/test_reference_distributions.py`.
-- `tests/test_mobility_function.py`.
+- `scripts/person_day.py`: reconstrucción estricta viaje → persona-día; `T=sum(t_j)` y retorno al hogar excluido de `P1`.
+- `scripts/paper1_adapters.py`: adaptadores explícitos para Santiago 2012, México 2017 y Bogotá 2015.
+- `scripts/hydrate_paper1_lfs.sh`: hidratación selectiva y verificación criptográfica de los objetos LFS requeridos.
+- `scripts/kitagawa_mobility.py`: descomposición descriptiva de diferencia agregada en componente `T|P1` y composición de participación.
+- tests sintéticos correspondientes para compresibilidad, referencias, función, persona-día, adaptadores y descomposición.
 
-Los tests sintéticos están versionados, pero esta nota no debe interpretarse como evidencia de que un workflow CI haya sido ejecutado.
+Los tests están versionados, pero esta nota no debe interpretarse como evidencia de que un workflow CI haya sido ejecutado sobre los microdatos reales.
 
-## 10. Próxima tarea científica
+## 10. Triada confirmatoria congelada
 
-La próxima ejecución no debe comenzar por Tier A. Debe comenzar por reconstruir o localizar las tablas persona-día utilizadas en G6/G6b para Santiago 2012, Ciudad de México 2017 y Bogotá, aplicar la nueva especificación directa y generar tres productos congelados:
+La primera prueba multiciudad se realizará con:
 
-1. `support_diagnostics.csv`;
-2. `reference_distributions.csv`;
-3. `scalar_compressibility_results.csv` con bootstrap y clasificación pareada.
+1. Santiago 2012;
+2. Ciudad de México 2017;
+3. Bogotá 2015.
 
-Una vez cerrados esos resultados se decide si el Paper I puede sostener una representación escalar única o si su resultado principal debe ser la función `T|P1` más un orden parcial.
+Bogotá 2019 se reserva para una extensión longitudinal posterior. La selección conserva continuidad con el benchmark exploratorio de 2022 y permite probar armonización entre instrumentos de estructura distinta.
 
-## 11. Hipótesis de contribución
+Los archivos canónicos, hashes LFS y duplicados excluidos se encuentran en `docs/paper1_data_manifest.md`. No se mezclarán copias históricas de Bogotá con objetos canónicos aun cuando tengan nombres casi idénticos.
+
+## 11. Hallazgo crítico de la auditoría histórica
+
+Los tres notebooks del G6 histórico construyeron la variable llamada `tiempo_total` mediante `AVG(duracion_minutos)` agrupado por persona, no mediante suma diaria de duraciones:
+
+- Santiago 2012: además aplicaba `duracion_minutos < 150`;
+- Ciudad de México 2017: aplicaba `duracion_minutos < 180`;
+- Bogotá 2015: aplicaba `duracion_minutos < 180`.
+
+Por tanto, G6 relacionaba número de viajes con **duración media por viaje**, y además utilizaba umbrales no armonizados. Esto impide interpretar aquella variable como presupuesto temporal diario.
+
+La nueva formulación corrige ambos problemas:
+
+\[
+T_i=\sum_j t_{ij}
+\]
+
+sin trimming implícito, y
+
+\[
+P_{1i}=\#\{\text{episodios de actividad fuera del hogar}\}.
+\]
+
+Los retornos al hogar agregan minutos a `T_i` pero no incrementan `P1`. CM-0 permanece sólo como benchmark de reproducibilidad histórica.
+
+## 12. Universo primario de día
+
+La primera comparación no mezclará días laborales con sábado/domingo ni, en Santiago, componentes estivales.
+
+- Santiago 2012: viaje con `FactorLaboralNormal` observado; ponderación de persona mediante `Factor_LaboralNormal`.
+- Ciudad de México 2017: `p5_3 == 1`, correspondiente al bloque entre semana; el sábado (`p5_3 == 2`) queda fuera de la especificación primaria. El ponderador de persona es `factor_y` tras el merge TVIAJE–TSDEM; `factor_x` queda como control QA.
+- Bogotá 2015: `DIA_HABIL == 'Si'`, con `PONDERADOR_CALIBRADO` como peso de persona repetido en los viajes.
+
+La armonización es por tipo de día, no una afirmación de equivalencia estacional entre fechas de levantamiento.
+
+## 13. Viajeros y no viajeros
+
+Los archivos `viajes_personas` sólo contienen personas con al menos un viaje. Sirven para reconstruir `T|P1` entre viajeros, pero no permiten inferir la tasa de no viajeros.
+
+La tasa de no viajeros debe derivarse de los universos de personas originales:
+
+- Santiago: `santiago/source-csv/personas.csv`;
+- México: `ciudad-de-mexico/source-csv/tsdem.csv`;
+- Bogotá 2015: `bogota/2015/source-xlsx/encuesta 2015 - personas.xlsx`.
+
+No se combinarán ambas piezas en una métrica poblacional hasta demostrar una regla defendible para interpretar `T=0`.
+
+## 14. Próxima tarea científica
+
+La próxima ejecución debe completar, en este orden:
+
+1. hidratar y verificar los objetos del manifiesto;
+2. ejecutar los adaptadores sobre microdatos reales y producir QA de esquemas, tiempos, propósitos, ponderadores y duplicados;
+3. recuperar variables de diseño muestral para bootstrap; México dispone explícitamente de UPM y estrato de diseño en los microdatos oficiales;
+4. reconstruir los universos de no viajeros;
+5. calibrar y congelar soporte común estimable `P0^C`;
+6. generar `support_diagnostics.csv`, `reference_distributions.csv` y `scalar_compressibility_results.csv`;
+7. decidir, sólo con esos resultados, si el Paper I admite `CM_B` o si su conclusión principal es una función `T|P1` acompañada de orden parcial.
+
+## 15. Hipótesis de contribución
 
 La operación de estandarización directa no es nueva y no debe presentarse como tal. La contribución potencial es la combinación de:
 
