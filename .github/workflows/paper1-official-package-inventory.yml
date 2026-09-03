@@ -22,85 +22,103 @@ jobs:
           python-version: '3.11'
 
       - name: Install inventory dependencies
-        run: python -m pip install requests beautifulsoup4
+        run: python -m pip install requests beautifulsoup4 urllib3
 
       - name: Download and inventory official packages
         shell: bash
         run: |
+          set -o pipefail
           python - <<'PY' | tee official-package-inventory.log
           from __future__ import annotations
-          from io import BytesIO, TextIOWrapper
-          from pathlib import PurePosixPath
-          import csv
+          from io import BytesIO
+          import hashlib
           import re
-          import ssl
           import zipfile
           from urllib.parse import urljoin
           import requests
+          import urllib3
           from bs4 import BeautifulSoup
 
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
           session = requests.Session()
           session.headers.update({"User-Agent": "Mozilla/5.0 (ENMODO Paper I reproducibility audit)"})
 
-          packages = [
-              ("Mexico EOD 2017", "https://www.inegi.org.mx/contenidos/programas/eod/2017/datosabiertos/eod_2017_csv.zip"),
-              ("Bogota EOD 2015", "https://simur.gov.co/sites/simur.gov.co/files/2021-06-24/basico/Encuesta_de_Movilidad_2015.zip"),
-          ]
-
-          wanted = re.compile(r"(tviaje|tsdem|viaje|persona|diccion|catalog|hogar)", re.I)
-
-          def sniff_csv(zf: zipfile.ZipFile, name: str) -> None:
-              try:
-                  raw = zf.open(name).read(8192)
-              except Exception as exc:
-                  print(f"    HEADER_ERROR {name}: {exc}")
-                  return
+          def decode(raw: bytes) -> str:
               for enc in ("utf-8-sig", "latin-1"):
                   try:
-                      text = raw.decode(enc)
-                      first = text.splitlines()[0] if text.splitlines() else ""
-                      print(f"    HEADER[{enc}] {name}: {first[:1000]}")
-                      return
+                      return raw.decode(enc)
                   except UnicodeDecodeError:
-                      continue
-              print(f"    HEADER_BINARY {name}")
+                      pass
+              return raw.decode("utf-8", errors="replace")
 
-          for label, url in packages:
-              print(f"===== {label} =====")
-              print(f"URL: {url}")
-              r = session.get(url, timeout=120, allow_redirects=True)
-              print(f"HTTP: {r.status_code}")
-              print(f"FINAL_URL: {r.url}")
-              print(f"CONTENT_TYPE: {r.headers.get('content-type')}")
-              print(f"BYTES: {len(r.content)}")
-              r.raise_for_status()
-              zf = zipfile.ZipFile(BytesIO(r.content))
-              names = zf.namelist()
-              print(f"ZIP_ENTRIES: {len(names)}")
-              for name in names:
-                  if wanted.search(name):
-                      info = zf.getinfo(name)
-                      print(f"  {info.file_size}\t{name}")
-                      if name.lower().endswith((".csv", ".txt")) and info.file_size > 0:
-                          sniff_csv(zf, name)
-              print()
+          def dump_member(zf: zipfile.ZipFile, name: str) -> None:
+              print(f"--- {name} ---")
+              text = decode(zf.read(name))
+              print(text[:20000].rstrip())
 
-          print("===== SECTRA EOD Santiago 2012 discovery with TLS verification disabled =====")
-          url = "https://www.sectra.gob.cl/info-territorial/region-metropolitana-de-santiago/"
+          mexico_url = "https://www.inegi.org.mx/contenidos/programas/eod/2017/datosabiertos/eod_2017_csv.zip"
+          print("===== Mexico EOD 2017 =====")
+          r = session.get(mexico_url, timeout=180, allow_redirects=True)
+          print(f"URL: {mexico_url}")
+          print(f"HTTP: {r.status_code}")
+          print(f"FINAL_URL: {r.url}")
+          print(f"CONTENT_TYPE: {r.headers.get('content-type')}")
+          print(f"BYTES: {len(r.content)}")
+          print(f"SHA256: {hashlib.sha256(r.content).hexdigest()}")
+          r.raise_for_status()
+          zf = zipfile.ZipFile(BytesIO(r.content))
+          names = zf.namelist()
+          print(f"ZIP_ENTRIES: {len(names)}")
+          for member in [
+              "tviaje_eod2017/catalogos/p5_3.csv",
+              "tviaje_eod2017/catalogos/p5_11a.csv",
+              "tviaje_eod2017/catalogos/p5_13.csv",
+              "tviaje_eod2017/diccionario_de_datos/diccionario_datos_tviaje.csv",
+              "tsdem_eod2017/catalogos/p5_4.csv",
+              "tsdem_eod2017/diccionario_de_datos/diccionario_datos_tsdem.csv",
+          ]:
+              if member in names:
+                  dump_member(zf, member)
+              else:
+                  print(f"MISSING_MEMBER: {member}")
+
+          # Basic row counts and coding support without persisting microdata.
+          for member in [
+              "tviaje_eod2017/conjunto_de_datos/tviaje.csv",
+              "tsdem_eod2017/conjunto_de_datos/tsdem.csv",
+          ]:
+              raw = zf.read(member)
+              print(f"ROWS_APPROX {member}: {raw.count(b'\n') - 1}")
+
+          print("\n===== Bogota EOD 2015 endpoint =====")
+          bog_url = "https://simur.gov.co/sites/simur.gov.co/files/2021-06-24/basico/Encuesta_de_Movilidad_2015.zip"
           try:
-              r = session.get(url, timeout=60, allow_redirects=True, verify=False)
-              print(f"HTTP: {r.status_code}")
-              print(f"FINAL_URL: {r.url}")
-              print(f"BYTES: {len(r.content)}")
-              soup = BeautifulSoup(r.text, "html.parser")
+              br = session.get(bog_url, timeout=120, allow_redirects=True, verify=False)
+              print(f"URL: {bog_url}")
+              print(f"HTTP: {br.status_code}")
+              print(f"FINAL_URL: {br.url}")
+              print(f"BYTES: {len(br.content)}")
+              print(f"SHA256: {hashlib.sha256(br.content).hexdigest()}")
+          except Exception as exc:
+              print(f"BOGOTA_ERROR: {type(exc).__name__}: {exc}")
+
+          print("\n===== SECTRA EOD Santiago 2012 discovery =====")
+          sectra_url = "https://www.sectra.gob.cl/info-territorial/region-metropolitana-de-santiago/"
+          try:
+              sr = session.get(sectra_url, timeout=60, allow_redirects=True, verify=False)
+              print(f"HTTP: {sr.status_code}")
+              print(f"FINAL_URL: {sr.url}")
+              print(f"BYTES: {len(sr.content)}")
+              soup = BeautifulSoup(sr.text, "html.parser")
               for a in soup.find_all("a"):
                   href = a.get("href")
                   text = " ".join(a.stripped_strings)
                   if not href:
                       continue
-                  full = urljoin(r.url, href)
-                  if re.search(r"2012|base de datos|descarg|eod|csv|zip|rar|7z", text + " " + full, re.I):
-                      print(f"  LINK\t{text[:180]}\t{full}")
+                  full = urljoin(sr.url, href)
+                  haystack = text + " " + full
+                  if re.search(r"2012|base.?de.?datos|descarg|eod|csv|zip|rar|7z|santiago", haystack, re.I):
+                      print(f"LINK\t{text[:200]}\t{full}")
           except Exception as exc:
               print(f"SECTRA_ERROR: {type(exc).__name__}: {exc}")
           PY
