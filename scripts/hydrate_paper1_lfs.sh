@@ -7,18 +7,19 @@ set -euo pipefail
 #   bash scripts/hydrate_paper1_lfs.sh
 #   bash scripts/hydrate_paper1_lfs.sh --with-bogota-2019
 #
-# IMPORTANT PROVENANCE NOTE
-# -------------------------
-# arieIIopez/enmodo is a GitHub fork. The fork contains the correct Git LFS
-# pointers but GitHub did not copy the underlying LFS objects into the fork's
-# LFS store. The canonical objects remain available from the source repository
-# RacoFernandez/enmodo with the exact same SHA-256 OIDs and byte sizes.
+# PROVENANCE AND RECOVERY STRATEGY
+# --------------------------------
+# arieIIopez/enmodo and the original RacoFernandez/enmodo repository retain the
+# canonical Git LFS pointer files, but their GitHub LFS backends currently
+# return HTTP 410 for the historical binary objects. Because Git LFS object IDs
+# are SHA-256 content hashes, an identical object recovered from another
+# historical fork is byte-for-byte the same dataset.
 #
-# Therefore this script keeps the fork as the source of code/version history
-# but fetches the immutable LFS objects from an explicit `source-lfs` remote
-# pointing at RacoFernandez/enmodo. Every hydrated object is then verified by
-# SHA-256 and byte size, so changing the storage endpoint cannot silently change
-# the dataset.
+# This script therefore probes an explicit, versioned list of ENMODO forks that
+# contain the same pointers. It accepts data only after verifying every file by
+# the frozen SHA-256 OID and byte size. The code/history source remains
+# arieIIopez/enmodo; the binary storage endpoint is treated purely as a content-
+# addressed recovery source.
 #
 # Bogotá 2015 personas.xlsx is a regular Git blob and is verified separately.
 
@@ -27,7 +28,7 @@ for arg in "$@"; do
   case "$arg" in
     --with-bogota-2019) WITH_BOGOTA_2019=1 ;;
     -h|--help)
-      sed -n '1,32p' "$0"
+      sed -n '1,36p' "$0"
       exit 0
       ;;
     *)
@@ -61,22 +62,6 @@ EOF
 fi
 
 git lfs install --local >/dev/null
-
-LFS_REMOTE_NAME="source-lfs"
-LFS_REMOTE_URL="https://github.com/RacoFernandez/enmodo.git"
-LFS_REMOTE_REF="main"
-
-if git remote get-url "$LFS_REMOTE_NAME" >/dev/null 2>&1; then
-  existing_remote="$(git remote get-url "$LFS_REMOTE_NAME")"
-  if [[ "$existing_remote" != "$LFS_REMOTE_URL" ]]; then
-    echo "Remote $LFS_REMOTE_NAME already exists with unexpected URL:" >&2
-    echo "  expected $LFS_REMOTE_URL" >&2
-    echo "  actual   $existing_remote" >&2
-    exit 1
-  fi
-else
-  git remote add "$LFS_REMOTE_NAME" "$LFS_REMOTE_URL"
-fi
 
 declare -A OID
 declare -A SIZE
@@ -114,13 +99,67 @@ if [[ "$WITH_BOGOTA_2019" -eq 1 ]]; then
 fi
 
 INCLUDE="$(IFS=,; echo "${LFS_FILES[*]}")"
-echo "Hydrating canonical Paper I LFS objects from $LFS_REMOTE_URL:"
+
+# Historical forks are ordered by provenance/age. Recovery can accumulate
+# objects across sources: after each fetch we checkout whatever has become
+# available locally, then continue only for still-missing objects.
+RECOVERY_SOURCES=(
+  "source-original|https://github.com/RacoFernandez/enmodo.git|main"
+  "source-eugenrb|https://github.com/eugenrb/enmodo.git|main"
+  "source-freddy|https://github.com/2020freddyoscar2021/enmodo.git|main"
+)
+
+ensure_remote() {
+  local name="$1" url="$2"
+  if git remote get-url "$name" >/dev/null 2>&1; then
+    local existing
+    existing="$(git remote get-url "$name")"
+    if [[ "$existing" != "$url" ]]; then
+      echo "Remote $name exists with unexpected URL" >&2
+      echo "  expected $url" >&2
+      echo "  actual   $existing" >&2
+      exit 1
+    fi
+  else
+    git remote add "$name" "$url"
+  fi
+}
+
+all_hydrated() {
+  local path
+  for path in "${LFS_FILES[@]}"; do
+    [[ -f "$path" ]] || return 1
+    if head -n 1 "$path" | grep -q '^version https://git-lfs.github.com/spec/v1$'; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+echo "Canonical Paper I LFS objects requested:"
 printf '  - %s\n' "${LFS_FILES[@]}"
 
-# Fetch the immutable objects from the source repository into the local LFS
-# object store, then materialize only the requested paths in the working tree.
-git lfs fetch "$LFS_REMOTE_NAME" "$LFS_REMOTE_REF" --include="$INCLUDE" --exclude=""
-git lfs checkout "${LFS_FILES[@]}"
+echo
+for source in "${RECOVERY_SOURCES[@]}"; do
+  IFS='|' read -r remote_name remote_url remote_ref <<<"$source"
+  ensure_remote "$remote_name" "$remote_url"
+  echo "Trying LFS recovery source: $remote_url"
+
+  # A remote may contain only a subset. Do not abort on fetch failure; objects
+  # successfully transferred before the error remain in the local LFS store.
+  set +e
+  git lfs fetch "$remote_name" "$remote_ref" --include="$INCLUDE" --exclude=""
+  fetch_status=$?
+  set -e
+  echo "  fetch exit status: $fetch_status"
+
+  git lfs checkout "${LFS_FILES[@]}" >/dev/null 2>&1 || true
+  if all_hydrated; then
+    echo "All requested LFS objects recovered after source: $remote_url"
+    break
+  fi
+  echo "  some requested objects remain unavailable; continuing"
+done
 
 echo
 
@@ -132,7 +171,8 @@ for path in "${LFS_FILES[@]}"; do
   fi
 
   if head -n 1 "$path" | grep -q '^version https://git-lfs.github.com/spec/v1$'; then
-    echo "NOT HYDRATED: $path is still an LFS pointer" >&2
+    echo "NOT HYDRATED AFTER ALL RECOVERY SOURCES: $path" >&2
+    echo "  expected oid sha256:${OID[$path]}" >&2
     exit 1
   fi
 
@@ -180,6 +220,6 @@ fi
 echo "OK  $BOGOTA15_PERSONS"
 
 echo
-echo "Paper I inputs hydrated and verified."
-echo "Code source: arieIIopez/enmodo; LFS object source: RacoFernandez/enmodo."
+echo "Paper I inputs hydrated and verified byte-for-byte."
+echo "Code source: arieIIopez/enmodo; LFS recovery is content-addressed by frozen OID."
 echo "Next: reconstruct person-days and evaluate the preregistered support rule."
