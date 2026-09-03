@@ -7,19 +7,27 @@ set -euo pipefail
 #   bash scripts/hydrate_paper1_lfs.sh
 #   bash scripts/hydrate_paper1_lfs.sh --with-bogota-2019
 #
-# The default pull includes both travelling-person trip tables and the person
-# universes required to estimate non-traveller rates where those universes are
-# stored through LFS. Bogotá 2015 personas.xlsx is a regular Git blob.
+# IMPORTANT PROVENANCE NOTE
+# -------------------------
+# arieIIopez/enmodo is a GitHub fork. The fork contains the correct Git LFS
+# pointers but GitHub did not copy the underlying LFS objects into the fork's
+# LFS store. The canonical objects remain available from the source repository
+# RacoFernandez/enmodo with the exact same SHA-256 OIDs and byte sizes.
 #
-# LFS files are verified by byte size and SHA-256 (the LFS oid). The regular
-# Bogotá person file is verified by byte size and Git blob SHA-1.
+# Therefore this script keeps the fork as the source of code/version history
+# but fetches the immutable LFS objects from an explicit `source-lfs` remote
+# pointing at RacoFernandez/enmodo. Every hydrated object is then verified by
+# SHA-256 and byte size, so changing the storage endpoint cannot silently change
+# the dataset.
+#
+# Bogotá 2015 personas.xlsx is a regular Git blob and is verified separately.
 
 WITH_BOGOTA_2019=0
 for arg in "$@"; do
   case "$arg" in
     --with-bogota-2019) WITH_BOGOTA_2019=1 ;;
     -h|--help)
-      sed -n '1,22p' "$0"
+      sed -n '1,32p' "$0"
       exit 0
       ;;
     *)
@@ -53,6 +61,22 @@ EOF
 fi
 
 git lfs install --local >/dev/null
+
+LFS_REMOTE_NAME="source-lfs"
+LFS_REMOTE_URL="https://github.com/RacoFernandez/enmodo.git"
+LFS_REMOTE_REF="main"
+
+if git remote get-url "$LFS_REMOTE_NAME" >/dev/null 2>&1; then
+  existing_remote="$(git remote get-url "$LFS_REMOTE_NAME")"
+  if [[ "$existing_remote" != "$LFS_REMOTE_URL" ]]; then
+    echo "Remote $LFS_REMOTE_NAME already exists with unexpected URL:" >&2
+    echo "  expected $LFS_REMOTE_URL" >&2
+    echo "  actual   $existing_remote" >&2
+    exit 1
+  fi
+else
+  git remote add "$LFS_REMOTE_NAME" "$LFS_REMOTE_URL"
+fi
 
 declare -A OID
 declare -A SIZE
@@ -90,10 +114,13 @@ if [[ "$WITH_BOGOTA_2019" -eq 1 ]]; then
 fi
 
 INCLUDE="$(IFS=,; echo "${LFS_FILES[*]}")"
-echo "Hydrating canonical Paper I LFS objects:"
+echo "Hydrating canonical Paper I LFS objects from $LFS_REMOTE_URL:"
 printf '  - %s\n' "${LFS_FILES[@]}"
 
-git lfs pull --include="$INCLUDE" --exclude=""
+# Fetch the immutable objects from the source repository into the local LFS
+# object store, then materialize only the requested paths in the working tree.
+git lfs fetch "$LFS_REMOTE_NAME" "$LFS_REMOTE_REF" --include="$INCLUDE" --exclude=""
+git lfs checkout "${LFS_FILES[@]}"
 
 echo
 
@@ -154,4 +181,5 @@ echo "OK  $BOGOTA15_PERSONS"
 
 echo
 echo "Paper I inputs hydrated and verified."
-echo "Next: audit schemas and freeze city-specific adapters before person-day construction."
+echo "Code source: arieIIopez/enmodo; LFS object source: RacoFernandez/enmodo."
+echo "Next: reconstruct person-days and evaluate the preregistered support rule."
