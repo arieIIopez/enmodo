@@ -10,8 +10,6 @@ jobs:
   stage1:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      GIT_LFS_SKIP_SMUDGE: '1'
     steps:
       - name: Checkout without automatic LFS hydration
         uses: actions/checkout@v4
@@ -30,8 +28,19 @@ jobs:
           python -m pip install numpy pandas openpyxl
           git lfs version
 
+      - name: Capture Git LFS environment
+        run: |
+          git lfs env | tee paper1-lfs-env.log
+          git lfs ls-files | tee paper1-lfs-files.log
+
       - name: Hydrate and verify canonical Paper I inputs
-        run: bash scripts/hydrate_paper1_lfs.sh
+        shell: bash
+        run: |
+          set +e
+          bash scripts/hydrate_paper1_lfs.sh 2>&1 | tee paper1-hydration.log
+          status=${PIPESTATUS[0]}
+          echo "$status" > paper1-hydration-exit-code.txt
+          exit "$status"
 
       - name: Run stage-1 reconstruction and QA
         run: |
@@ -46,6 +55,10 @@ jobs:
         with:
           name: paper1-stage1-diagnostics
           path: |
+            paper1-lfs-env.log
+            paper1-lfs-files.log
+            paper1-hydration.log
+            paper1-hydration-exit-code.txt
             paper1-stage1.log
             outputs/paper1_stage1/adapter_audit.csv
             outputs/paper1_stage1/universe_audit.csv
