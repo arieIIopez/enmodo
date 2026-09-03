@@ -1,0 +1,114 @@
+name: Paper I — inventory official EOD packages
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/paper1-official-package-inventory.yml'
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install inventory dependencies
+        run: python -m pip install requests beautifulsoup4
+
+      - name: Download and inventory official packages
+        shell: bash
+        run: |
+          python - <<'PY' | tee official-package-inventory.log
+          from __future__ import annotations
+          from io import BytesIO, TextIOWrapper
+          from pathlib import PurePosixPath
+          import csv
+          import re
+          import ssl
+          import zipfile
+          from urllib.parse import urljoin
+          import requests
+          from bs4 import BeautifulSoup
+
+          session = requests.Session()
+          session.headers.update({"User-Agent": "Mozilla/5.0 (ENMODO Paper I reproducibility audit)"})
+
+          packages = [
+              ("Mexico EOD 2017", "https://www.inegi.org.mx/contenidos/programas/eod/2017/datosabiertos/eod_2017_csv.zip"),
+              ("Bogota EOD 2015", "https://simur.gov.co/sites/simur.gov.co/files/2021-06-24/basico/Encuesta_de_Movilidad_2015.zip"),
+          ]
+
+          wanted = re.compile(r"(tviaje|tsdem|viaje|persona|diccion|catalog|hogar)", re.I)
+
+          def sniff_csv(zf: zipfile.ZipFile, name: str) -> None:
+              try:
+                  raw = zf.open(name).read(8192)
+              except Exception as exc:
+                  print(f"    HEADER_ERROR {name}: {exc}")
+                  return
+              for enc in ("utf-8-sig", "latin-1"):
+                  try:
+                      text = raw.decode(enc)
+                      first = text.splitlines()[0] if text.splitlines() else ""
+                      print(f"    HEADER[{enc}] {name}: {first[:1000]}")
+                      return
+                  except UnicodeDecodeError:
+                      continue
+              print(f"    HEADER_BINARY {name}")
+
+          for label, url in packages:
+              print(f"===== {label} =====")
+              print(f"URL: {url}")
+              r = session.get(url, timeout=120, allow_redirects=True)
+              print(f"HTTP: {r.status_code}")
+              print(f"FINAL_URL: {r.url}")
+              print(f"CONTENT_TYPE: {r.headers.get('content-type')}")
+              print(f"BYTES: {len(r.content)}")
+              r.raise_for_status()
+              zf = zipfile.ZipFile(BytesIO(r.content))
+              names = zf.namelist()
+              print(f"ZIP_ENTRIES: {len(names)}")
+              for name in names:
+                  if wanted.search(name):
+                      info = zf.getinfo(name)
+                      print(f"  {info.file_size}\t{name}")
+                      if name.lower().endswith((".csv", ".txt")) and info.file_size > 0:
+                          sniff_csv(zf, name)
+              print()
+
+          print("===== SECTRA EOD Santiago 2012 discovery with TLS verification disabled =====")
+          url = "https://www.sectra.gob.cl/info-territorial/region-metropolitana-de-santiago/"
+          try:
+              r = session.get(url, timeout=60, allow_redirects=True, verify=False)
+              print(f"HTTP: {r.status_code}")
+              print(f"FINAL_URL: {r.url}")
+              print(f"BYTES: {len(r.content)}")
+              soup = BeautifulSoup(r.text, "html.parser")
+              for a in soup.find_all("a"):
+                  href = a.get("href")
+                  text = " ".join(a.stripped_strings)
+                  if not href:
+                      continue
+                  full = urljoin(r.url, href)
+                  if re.search(r"2012|base de datos|descarg|eod|csv|zip|rar|7z", text + " " + full, re.I):
+                      print(f"  LINK\t{text[:180]}\t{full}")
+          except Exception as exc:
+              print(f"SECTRA_ERROR: {type(exc).__name__}: {exc}")
+          PY
+
+      - name: Upload official package inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper1-official-package-inventory
+          path: official-package-inventory.log
+          retention-days: 14
