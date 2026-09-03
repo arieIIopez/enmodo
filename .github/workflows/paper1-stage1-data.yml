@@ -1,0 +1,58 @@
+name: Paper I stage 1 — canonical microdata QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/paper1-stage1-data.yml'
+
+jobs:
+  stage1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GIT_LFS_SKIP_SMUDGE: '1'
+    steps:
+      - name: Checkout without automatic LFS hydration
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy pandas openpyxl
+          git lfs version
+
+      - name: Hydrate and verify canonical Paper I inputs
+        run: bash scripts/hydrate_paper1_lfs.sh
+
+      - name: Run stage-1 reconstruction and QA
+        run: |
+          mkdir -p outputs/paper1_stage1
+          python -m scripts.run_paper1_pilot_stage1 \
+            --output-dir outputs/paper1_stage1 \
+            2>&1 | tee paper1-stage1.log
+
+      - name: Upload aggregate stage-1 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper1-stage1-diagnostics
+          path: |
+            paper1-stage1.log
+            outputs/paper1_stage1/adapter_audit.csv
+            outputs/paper1_stage1/universe_audit.csv
+            outputs/paper1_stage1/person_day_qa.csv
+            outputs/paper1_stage1/purpose_counts.csv
+            outputs/paper1_stage1/support_diagnostics.csv
+            outputs/paper1_stage1/time_participation_cells_unfrozen.csv
+            outputs/paper1_stage1/run_metadata.json
+          if-no-files-found: warn
+          retention-days: 14
