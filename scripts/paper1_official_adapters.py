@@ -9,6 +9,7 @@ transformed explicitly, with historical notebooks used only to audit semantics.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 import unicodedata
 
 import numpy as np
@@ -41,15 +42,16 @@ def _normalize_text(value: object) -> str:
 
 
 def _numeric_decimal_comma(series: pd.Series, label: str) -> pd.Series:
+    """Parse numeric values, allowing either comma or point decimals.
+
+    Historical ENMODO notebooks for Bogotá converted comma decimals by replacing
+    `,` with `.` and did not apply a thousands-separator rule. We preserve that
+    behaviour rather than guessing locale-specific grouping.
+    """
     if pd.api.types.is_numeric_dtype(series):
         out = pd.to_numeric(series, errors="coerce")
     else:
-        cleaned = (
-            series.astype("string")
-            .str.strip()
-            .str.replace(".", "", regex=False)
-            .str.replace(",", ".", regex=False)
-        )
+        cleaned = series.astype("string").str.strip().str.replace(",", ".", regex=False)
         out = pd.to_numeric(cleaned, errors="coerce")
     if out.isna().any() or (~np.isfinite(out)).any():
         raise ValueError(f"{label}: contains missing/non-numeric values after decimal conversion")
@@ -82,6 +84,7 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
         raise ValueError(f"{label}: contains missing clock values")
 
     values: list[float] = []
+    clock_re = re.compile(r"(?P<h>\d{1,2}):(?P<m>\d{2})(?::(?P<s>\d{2}(?:\.\d+)?))?$")
     for value in series.tolist():
         if isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool):
             x = float(value)
@@ -102,12 +105,12 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
 
         text = str(value).strip()
         # Handle datetime/time string representations by taking the final clock.
-        match = pd.Series([text]).str.extract(r"(?P<h>\d{1,2}):(?P<m>\d{2})(?::(?P<s>\d{2}(?:\.\d+)?))?$").iloc[0]
-        if match.isna().all():
+        match = clock_re.search(text)
+        if not match:
             raise ValueError(f"{label}: unparseable clock value {value!r}")
-        h = int(match["h"])
-        m = int(match["m"])
-        s = float(match["s"]) if pd.notna(match["s"]) else 0.0
+        h = int(match.group("h"))
+        m = int(match.group("m"))
+        s = float(match.group("s")) if match.group("s") is not None else 0.0
         if not (0 <= h <= 23 and 0 <= m <= 59 and 0 <= s < 60):
             raise ValueError(f"{label}: invalid clock value {value!r}")
         values.append(h * 60.0 + m + s / 60.0)
@@ -190,7 +193,6 @@ def prepare_bogota_2015_official(
     if not purpose_norm.eq("volver a casa").any():
         raise ValueError(f"{city}: literal 'Volver a casa' absent; purpose semantics must be audited")
 
-    # Create a stable canonical trip table for the generic person-day builder.
     canonical = pd.DataFrame(
         {
             "person_id": t["_person_key"].astype(str),
@@ -204,8 +206,6 @@ def prepare_bogota_2015_official(
         }
     )
 
-    # Person-universe function expects numeric calibrated weight; pass the
-    # normalized copy, not a silently coerced duplicate.
     persons_for_universe = p.copy()
     persons_for_universe["PONDERADOR_CALIBRADO"] = persons_for_universe["_paper1_weight"]
 
@@ -238,9 +238,6 @@ def build_bogota_2015_from_official(
         home_return_values=["Volver a casa"],
     )
 
-    # Reconstruct a trip frame with official key columns for the existing
-    # universe logic. Traveller status is determined by the same selected
-    # workday universe as the person-day builder.
     selected_keys = canonical[["ID_ENCUESTA", "NUMERO_PERSONA"]].copy()
     universe_source = persons_for_universe.copy()
     universe_source["ID_ENCUESTA"] = universe_source["ID_ENCUESTA"].astype(str).str.replace(r"\.0$", "", regex=True)
