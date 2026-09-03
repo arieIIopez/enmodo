@@ -24,6 +24,7 @@ KEYWORDS = re.compile(
     r"(municip|localid|ciudad|depart|residen|barrio|zona|zat|upz|direccion|estrato|area)",
     re.I,
 )
+WEIGHT_KEYWORDS = re.compile(r"(ponderador|factor|^pi_|^fe_)", re.I)
 
 
 def _num(series: pd.Series) -> pd.Series:
@@ -33,6 +34,39 @@ def _num(series: pd.Series) -> pd.Series:
         series.astype("string").str.strip().str.replace(",", ".", regex=False),
         errors="coerce",
     )
+
+
+def _candidate_weight_summary(
+    frame: pd.DataFrame,
+    *,
+    level: str,
+    domain_mask: pd.Series | None = None,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for col in frame.columns:
+        if not WEIGHT_KEYWORDS.search(str(col)):
+            continue
+        x = _num(frame[col])
+        if domain_mask is None:
+            masks = {"full_eod_domain": pd.Series(True, index=frame.index)}
+        else:
+            masks = {"full_eod_domain": pd.Series(True, index=frame.index), "bogota_dc": domain_mask}
+        for domain_name, mask in masks.items():
+            vals = x.loc[mask]
+            rows.append(
+                {
+                    "level": level,
+                    "column": str(col),
+                    "domain": domain_name,
+                    "sample_rows": int(mask.sum()),
+                    "n_nonmissing": int(vals.notna().sum()),
+                    "sum": float(vals.sum(skipna=True)),
+                    "mean": float(vals.mean(skipna=True)) if vals.notna().any() else None,
+                    "min": float(vals.min(skipna=True)) if vals.notna().any() else None,
+                    "max": float(vals.max(skipna=True)) if vals.notna().any() else None,
+                }
+            )
+    return rows
 
 
 def run(output_dir: Path) -> None:
@@ -68,9 +102,6 @@ def run(output_dir: Path) -> None:
                 )
     pd.DataFrame(candidate_rows).to_csv(output_dir / "candidate_value_counts.csv", index=False)
 
-    # Residence domain comes from the household/survey table. Join it to persons
-    # with many-to-one validation so a geographic filter can never duplicate a
-    # person silently.
     domain = surveys[["ID_ENCUESTA", "MUNICIPIO", "DEPARTAMENTO"]].copy()
     p = persons.merge(domain, on="ID_ENCUESTA", how="left", validate="many_to_one")
     if p["MUNICIPIO"].isna().any():
@@ -111,6 +142,60 @@ def run(output_dir: Path) -> None:
     )
     weight_summary.to_csv(output_dir / "domain_weight_summary.csv", index=False)
 
+    bogota_person_mask = p["DEPARTAMENTO"].astype(str).str.strip().eq("Bogota D.C.")
+    bogota_house_mask = surveys2["DEPARTAMENTO"].astype(str).str.strip().eq("Bogota D.C.")
+    candidate_weights = _candidate_weight_summary(
+        p.drop(columns=["MUNICIPIO", "DEPARTAMENTO"]), level="person"
+    )
+    # Re-add domain-aware person summaries explicitly because the candidate
+    # helper above sees the pre-join person columns only.
+    for col in persons.columns:
+        if not WEIGHT_KEYWORDS.search(str(col)):
+            continue
+        vals = _num(p[col])
+        for domain_name, mask in {
+            "full_eod_domain": pd.Series(True, index=p.index),
+            "bogota_dc": bogota_person_mask,
+        }.items():
+            z = vals.loc[mask]
+            candidate_weights.append(
+                {
+                    "level": "person_domain_joined",
+                    "column": str(col),
+                    "domain": domain_name,
+                    "sample_rows": int(mask.sum()),
+                    "n_nonmissing": int(z.notna().sum()),
+                    "sum": float(z.sum(skipna=True)),
+                    "mean": float(z.mean(skipna=True)) if z.notna().any() else None,
+                    "min": float(z.min(skipna=True)) if z.notna().any() else None,
+                    "max": float(z.max(skipna=True)) if z.notna().any() else None,
+                }
+            )
+    for col in surveys2.columns:
+        if not WEIGHT_KEYWORDS.search(str(col)):
+            continue
+        vals = _num(surveys2[col])
+        for domain_name, mask in {
+            "full_eod_domain": pd.Series(True, index=surveys2.index),
+            "bogota_dc": bogota_house_mask,
+        }.items():
+            z = vals.loc[mask]
+            candidate_weights.append(
+                {
+                    "level": "household",
+                    "column": str(col),
+                    "domain": domain_name,
+                    "sample_rows": int(mask.sum()),
+                    "n_nonmissing": int(z.notna().sum()),
+                    "sum": float(z.sum(skipna=True)),
+                    "mean": float(z.mean(skipna=True)) if z.notna().any() else None,
+                    "min": float(z.min(skipna=True)) if z.notna().any() else None,
+                    "max": float(z.max(skipna=True)) if z.notna().any() else None,
+                }
+            )
+    candidate_weight_df = pd.DataFrame(candidate_weights).drop_duplicates()
+    candidate_weight_df.to_csv(output_dir / "weight_candidate_sums.csv", index=False)
+
     survey_ids = set(surveys["ID_ENCUESTA"].astype(str).str.replace(r"\.0$", "", regex=True))
     person_ids = set(persons["ID_ENCUESTA"].astype(str).str.replace(r"\.0$", "", regex=True))
     metadata = {
@@ -132,6 +217,8 @@ def run(output_dir: Path) -> None:
     print(schema.loc[schema.keyword_candidate].to_string(index=False))
     print("\nExpansion by residence domain:")
     print(weight_summary.to_string(index=False))
+    print("\nCandidate expansion fields (Bogotá D.C. only):")
+    print(candidate_weight_df.loc[candidate_weight_df.domain == "bogota_dc"].to_string(index=False))
 
 
 def main() -> None:
