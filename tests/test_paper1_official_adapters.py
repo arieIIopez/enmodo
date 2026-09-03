@@ -83,6 +83,23 @@ def test_bogota_official_handles_overnight_trip():
     assert person_days.iloc[0].r == 1
 
 
+def test_bogota_official_accepts_24h_exact_midnight():
+    trips = pd.DataFrame(
+        {
+            "ID_ENCUESTA": [10, 10],
+            "NUMERO_PERSONA": [1, 1],
+            "NUMERO_VIAJE": [1, 2],
+            "MOTIVOVIAJE": ["Trabajar", "Volver a casa"],
+            "HORA_INICIO": ["22:30", "23:30"],
+            "HORA_FIN": ["23:00", "24:00:00"],
+            "DIA_HABIL": ["S", "S"],
+        }
+    )
+    person_days, *_ = build_bogota_2015_from_official(trips, _persons())
+    assert person_days.iloc[0].t_minutes == 60
+    assert person_days.iloc[0].r == 1
+
+
 def test_bogota_official_fails_when_home_semantics_absent():
     trips = pd.DataFrame(
         {
