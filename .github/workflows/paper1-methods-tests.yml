@@ -7,6 +7,7 @@ on:
       - 'scripts/scalar_compressibility.py'
       - 'scripts/reference_distributions.py'
       - 'scripts/support_diagnostics.py'
+      - 'scripts/paper1_protocol.py'
       - 'scripts/mobility_function.py'
       - 'scripts/person_day.py'
       - 'scripts/person_universe.py'
@@ -16,6 +17,7 @@ on:
       - 'scripts/run_paper1_pilot_stage1.py'
       - 'tests/test_scalar_compressibility.py'
       - 'tests/test_reference_distributions.py'
+      - 'tests/test_support_diagnostics.py'
       - 'tests/test_mobility_function.py'
       - 'tests/test_person_day.py'
       - 'tests/test_person_universe.py'
@@ -55,6 +57,7 @@ jobs:
             --junitxml=paper1-pytest.xml \
             tests/test_scalar_compressibility.py \
             tests/test_reference_distributions.py \
+            tests/test_support_diagnostics.py \
             tests/test_mobility_function.py \
             tests/test_person_day.py \
             tests/test_person_universe.py \
