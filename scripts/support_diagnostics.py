@@ -4,8 +4,10 @@ For the primary specification R=P1 (discrete activity-episode count), nominal
 support is not enough: a P1 category can exist in every city but be supported by
 very few effective observations in one of them. These utilities compute raw n,
 design-weight mass, weighted share and Kish effective sample size by city-P1.
-No default threshold is imposed: threshold choice must be calibrated and frozen
-before confirmatory estimation.
+
+Generic utilities do not impose a universal threshold. Project-specific
+thresholds belong in the Paper I protocol and must be frozen before inspecting
+substantive scalar-compressibility results.
 """
 
 from __future__ import annotations
@@ -62,9 +64,9 @@ def estimable_global_support(
 ) -> pd.DataFrame:
     """Identify R categories passing declared thresholds in every city.
 
-    At least one threshold must be supplied. This function intentionally has no
-    default confirmatory cut-off: choosing one after inspecting the final result
-    would undermine preregistration.
+    At least one threshold must be supplied. This generic function intentionally
+    has no default confirmatory cut-off: a project must declare that rule before
+    inspecting its final comparison result.
     """
     required = {city_col, r_col, "n_eff_kish", "weighted_share"}
     missing = required.difference(diagnostics.columns)
@@ -100,3 +102,53 @@ def estimable_global_support(
         & (summary["cities_passing"] == n_cities)
     )
     return summary.sort_values(r_col).reset_index(drop=True)
+
+
+def contiguous_estimable_support(
+    diagnostics: pd.DataFrame,
+    *,
+    min_effective_n: float,
+    start_r: int = 1,
+    city_col: str = "city",
+    r_col: str = "r",
+) -> np.ndarray:
+    """Return the longest consecutive estimable discrete support from `start_r`.
+
+    For P1, selecting isolated tail categories after an intermediate category
+    fails would create an awkward and potentially post-hoc support. This helper
+    instead returns {start_r, ..., p*}, stopping at the first category that is
+    absent in any city or fails the declared Kish-effective-n threshold.
+
+    The function does not choose `min_effective_n`; that value must come from a
+    preregistered project protocol. `start_r=1` is appropriate when travelling
+    person-days with P1=0 are treated as diary-quality diagnostics rather than
+    part of the confirmatory mobility-participation curve.
+    """
+    if min_effective_n <= 0:
+        raise ValueError("min_effective_n must be positive")
+    if not isinstance(start_r, (int, np.integer)) or start_r < 0:
+        raise ValueError("start_r must be a non-negative integer")
+
+    summary = estimable_global_support(
+        diagnostics,
+        min_effective_n=float(min_effective_n),
+        city_col=city_col,
+        r_col=r_col,
+    ).copy()
+    values = pd.to_numeric(summary[r_col], errors="coerce")
+    if values.isna().any() or (~np.isfinite(values)).any():
+        raise ValueError("R values must be finite numeric values")
+    rounded = np.rint(values.to_numpy(dtype=float))
+    if not np.allclose(values.to_numpy(dtype=float), rounded, rtol=0, atol=1e-12):
+        raise ValueError("contiguous support requires integer-valued R categories")
+    summary["_r_int"] = rounded.astype(int)
+    if summary["_r_int"].duplicated().any():
+        raise ValueError("R categories must be unique after integer conversion")
+
+    passed = dict(zip(summary["_r_int"], summary["global_support"].astype(bool)))
+    support: list[float] = []
+    r = int(start_r)
+    while passed.get(r, False):
+        support.append(float(r))
+        r += 1
+    return np.asarray(support, dtype=float)
