@@ -117,8 +117,15 @@ jobs:
                       continue
                   full = urljoin(sr.url, href)
                   haystack = text + " " + full
-                  if re.search(r"2012|base.?de.?datos|descarg|eod|csv|zip|rar|7z|santiago", haystack, re.I):
+                  if re.search(r"2012|base.?de.?datos|descarg|eod|csv|zip|rar|7z|santiago|biblioteca", haystack, re.I):
+                      parent = a
+                      for _ in range(4):
+                          if parent.parent is None:
+                              break
+                          parent = parent.parent
+                      context = " ".join(parent.stripped_strings)
                       print(f"LINK\t{text[:200]}\t{full}")
+                      print(f"CONTEXT\t{context[:1500]}")
           except Exception as exc:
               print(f"SECTRA_ERROR: {type(exc).__name__}: {exc}")
           PY
