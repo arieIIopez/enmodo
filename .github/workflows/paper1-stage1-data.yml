@@ -4,6 +4,13 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - 'scripts/hydrate_paper1_lfs.sh'
+      - 'scripts/run_paper1_pilot_stage1.py'
+      - 'scripts/paper1_adapters.py'
+      - 'scripts/person_day.py'
+      - 'scripts/person_universe.py'
+      - 'scripts/support_diagnostics.py'
+      - 'scripts/paper1_protocol.py'
       - '.github/workflows/paper1-stage1-data.yml'
 
 jobs:
