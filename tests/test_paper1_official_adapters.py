@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -32,6 +33,7 @@ def test_bogota_official_reconstructs_daily_time_and_p1():
 
     assert audit.selected_trip_rows == 3
     assert audit.travelling_persons == 1
+    assert audit.missing_day_flag_rows == 0
     assert len(person_days) == 1
     row = person_days.iloc[0]
     assert row.person_id == "10::1"
@@ -43,6 +45,25 @@ def test_bogota_official_reconstructs_daily_time_and_p1():
     assert len(universe) == 3
     assert universe.travelled.sum() == 1
     assert universe_audit.n_nontravellers == 2
+
+
+def test_bogota_official_excludes_missing_workday_flags_as_historical_sin_dato():
+    trips = pd.DataFrame(
+        {
+            "ID_ENCUESTA": [10, 10, 10],
+            "NUMERO_PERSONA": [1, 1, 2],
+            "NUMERO_VIAJE": [1, 2, 1],
+            "MOTIVOVIAJE": ["Trabajar", "Volver a casa", "Trabajar"],
+            "HORA_INICIO": ["08:00", "18:00", "09:00"],
+            "HORA_FIN": ["08:30", "18:30", "10:00"],
+            "DIA_HABIL": ["S", "S", np.nan],
+        }
+    )
+    person_days, universe, audit, _ = build_bogota_2015_from_official(trips, _persons())
+    assert audit.missing_day_flag_rows == 1
+    assert audit.selected_trip_rows == 2
+    assert set(person_days.person_id) == {"10::1"}
+    assert bool(universe.loc[universe.person_id == "10::2", "travelled"].iloc[0]) is False
 
 
 def test_bogota_official_handles_overnight_trip():
