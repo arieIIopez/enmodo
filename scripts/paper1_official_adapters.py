@@ -26,6 +26,7 @@ class OfficialAdapterAudit:
     selected_trip_rows: int
     source_person_rows: int
     travelling_persons: int
+    missing_day_flag_rows: int = 0
     notes: str = ""
 
 
@@ -63,8 +64,6 @@ def _composite_key(df: pd.DataFrame, columns: list[str]) -> pd.Series:
     for col in columns:
         if df[col].isna().any():
             raise ValueError(f"composite key column {col!r} contains missing values")
-        # Excel often turns integer identifiers into floats. Preserve semantic
-        # identity by stripping a terminal .0 when the numeric value is integral.
         s = df[col].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
         parts.append(s)
     key = parts[0]
@@ -74,12 +73,7 @@ def _composite_key(df: pd.DataFrame, columns: list[str]) -> pd.Series:
 
 
 def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
-    """Parse survey clock fields to minutes from midnight.
-
-    Accepts HH:MM[:SS], pandas/Excel time-like values, and numeric Excel-day
-    fractions. It deliberately rejects missing or unparseable values rather
-    than imputing durations.
-    """
+    """Parse survey clock fields to minutes from midnight."""
     if series.isna().any():
         raise ValueError(f"{label}: contains missing clock values")
 
@@ -90,11 +84,9 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
             x = float(value)
             if not np.isfinite(x):
                 raise ValueError(f"{label}: non-finite clock value")
-            # Excel stores pure times as fractions of one day.
             if 0 <= x < 1:
                 values.append(x * 1440.0)
                 continue
-            # Numeric HHMM is common in survey exports; handle only valid forms.
             if 0 <= x <= 2359 and float(x).is_integer():
                 hhmm = int(x)
                 hh, mm = divmod(hhmm, 100)
@@ -104,7 +96,6 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
             raise ValueError(f"{label}: unsupported numeric clock value {value!r}")
 
         text = str(value).strip()
-        # Handle datetime/time string representations by taking the final clock.
         match = clock_re.search(text)
         if not match:
             raise ValueError(f"{label}: unparseable clock value {value!r}")
@@ -117,14 +108,24 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
     return pd.Series(values, index=series.index, dtype=float)
 
 
-def _workday_mask(series: pd.Series, city: str) -> pd.Series:
-    norm = series.map(_normalize_text)
+def _workday_mask(series: pd.Series, city: str) -> tuple[pd.Series, int]:
+    """Select DIA_HABIL == yes, matching the historical notebook semantics.
+
+    The original notebook mapped S->Si, N->No and every other value (including
+    missing values) to `Sin dato`, then retained only `DIA_HABIL == 'Si'`.
+    Missing/blank flags are therefore excluded, never imputed. Unexpected
+    non-missing codes still fail loudly because they may indicate a schema change.
+    """
+    missing = series.isna() | series.astype("string").str.strip().eq("")
+    norm = series.loc[~missing].map(_normalize_text)
     yes = {"s", "si", "1", "true"}
     no = {"n", "no", "0", "false"}
     unknown = sorted(set(norm.unique()).difference(yes | no))
     if unknown:
-        raise ValueError(f"{city}: unsupported DIA_HABIL values {unknown[:20]}")
-    return norm.isin(yes)
+        raise ValueError(f"{city}: unsupported non-missing DIA_HABIL values {unknown[:20]}")
+    mask = pd.Series(False, index=series.index, dtype=bool)
+    mask.loc[~missing] = norm.isin(yes)
+    return mask, int(missing.sum())
 
 
 def prepare_bogota_2015_official(
@@ -137,12 +138,9 @@ def prepare_bogota_2015_official(
     - trip/person key: ID_ENCUESTA + NUMERO_PERSONA
     - trip order/id: NUMERO_VIAJE
     - purpose: MOTIVOVIAJE (including literal `Volver a casa`)
-    - workday flag: DIA_HABIL
+    - workday flag: DIA_HABIL; missing flags are excluded as `Sin dato`
     - duration: HORA_FIN - HORA_INICIO, adding 24 h when end < start
     - primary person weight: PONDERADOR_CALIBRADO from the PERSON table
-
-    Trip-level calibrated weights are retained neither as primary person weights
-    nor as substitutes when the person join fails.
     """
     city = "Bogotá 2015"
     trip_required = [
@@ -169,7 +167,8 @@ def prepare_bogota_2015_official(
     if (p["_paper1_weight"] < 0).any():
         raise ValueError(f"{city}: person weights must be non-negative")
 
-    t = trips.loc[_workday_mask(trips["DIA_HABIL"], city)].copy()
+    workday_mask, missing_day_flag_rows = _workday_mask(trips["DIA_HABIL"], city)
+    t = trips.loc[workday_mask].copy()
     if t.empty:
         raise ValueError(f"{city}: no official workday trips selected")
     t["_person_key"] = _composite_key(t, ["ID_ENCUESTA", "NUMERO_PERSONA"])
@@ -215,7 +214,11 @@ def prepare_bogota_2015_official(
         selected_trip_rows=int(len(canonical)),
         source_person_rows=int(len(persons)),
         travelling_persons=int(canonical["person_id"].nunique()),
-        notes="Direct official-source reconstruction; no historical viajes_personas dependency.",
+        missing_day_flag_rows=missing_day_flag_rows,
+        notes=(
+            "Direct official-source reconstruction; no historical viajes_personas dependency. "
+            "Missing/blank DIA_HABIL values excluded as historical 'Sin dato'."
+        ),
     )
     return canonical, persons_for_universe, audit
 
