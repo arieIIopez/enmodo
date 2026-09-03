@@ -6,6 +6,7 @@ on:
     paths:
       - 'scripts/paper1_official_adapters.py'
       - 'scripts/run_bogota_2015_official_stage1.py'
+      - 'tests/test_paper1_official_adapters.py'
       - '.github/workflows/paper1-bogota2015-official.yml'
 
 jobs:
@@ -38,7 +39,9 @@ jobs:
           test "$(git hash-object 'bogota/2015/source-xlsx/encuesta 2015 - personas.xlsx')" = '252a4d99434ede490f0c9b2670bddfb25178f093'
 
       - name: Run Bogotá direct-source reconstruction
+        shell: bash
         run: |
+          set -o pipefail
           mkdir -p outputs/bogota_2015_official_stage1
           python -m scripts.run_bogota_2015_official_stage1 \
             --output-dir outputs/bogota_2015_official_stage1 \
