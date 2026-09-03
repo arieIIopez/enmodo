@@ -82,13 +82,13 @@ jobs:
               else:
                   print(f"MISSING_MEMBER: {member}")
 
-          # Basic row counts and coding support without persisting microdata.
           for member in [
               "tviaje_eod2017/conjunto_de_datos/tviaje.csv",
               "tsdem_eod2017/conjunto_de_datos/tsdem.csv",
           ]:
               raw = zf.read(member)
-              print(f"ROWS_APPROX {member}: {raw.count(b'\n') - 1}")
+              rows_approx = raw.count(bytes([10])) - 1
+              print(f"ROWS_APPROX {member}: {rows_approx}")
 
           print("\n===== Bogota EOD 2015 endpoint =====")
           bog_url = "https://simur.gov.co/sites/simur.gov.co/files/2021-06-24/basico/Encuesta_de_Movilidad_2015.zip"
