@@ -45,6 +45,12 @@ from scripts.paper1_adapters import (
     prepare_mexico_2017,
     prepare_santiago_2012,
 )
+from scripts.paper1_protocol import (
+    PRIMARY_MIN_EFFECTIVE_N,
+    PRIMARY_SUPPORT_START_R,
+    SENSITIVITY_MIN_EFFECTIVE_N,
+    evaluate_preregistered_supports,
+)
 from scripts.person_day import person_day_qa
 from scripts.person_universe import (
     bogota_2015_person_universe,
@@ -206,6 +212,7 @@ def run(output_dir: Path) -> None:
     )
     pday_qa = person_day_qa(person_days)
     support = support_diagnostics(person_days)
+    support_rules = evaluate_preregistered_supports(support)
     curve_cells = estimate_time_participation_curve(person_days)
     purposes = pd.concat(
         [
@@ -224,6 +231,7 @@ def run(output_dir: Path) -> None:
     pday_qa.to_csv(output_dir / "person_day_qa.csv", index=False)
     purposes.to_csv(output_dir / "purpose_counts.csv", index=False)
     support.to_csv(output_dir / "support_diagnostics.csv", index=False)
+    support_rules.to_csv(output_dir / "support_rule_evaluation.csv", index=False)
     curve_cells.to_csv(output_dir / "time_participation_cells_unfrozen.csv", index=False)
 
     metadata = {
@@ -232,10 +240,16 @@ def run(output_dir: Path) -> None:
         "git_head": _git_head(),
         "scalar_results_created": False,
         "support_frozen": False,
+        "support_protocol": {
+            "primary_start_r": PRIMARY_SUPPORT_START_R,
+            "primary_min_effective_n": PRIMARY_MIN_EFFECTIVE_N,
+            "sensitivity_min_effective_n": list(SENSITIVITY_MIN_EFFECTIVE_N),
+            "p1_zero_with_travel_in_primary_support": False,
+        },
         "inputs": {key: str(path.relative_to(ROOT)) for key, path in PATHS.items()},
         "next_required_decision": (
-            "Review support_diagnostics.csv and freeze estimable global P1 support before "
-            "running scalar compressibility."
+            "Inspect QA and the preregistered support evaluation, then record the mechanically "
+            "implied primary P0^C before running scalar compressibility."
         ),
     }
     (output_dir / "run_metadata.json").write_text(
@@ -244,7 +258,7 @@ def run(output_dir: Path) -> None:
 
     print(f"Stage 1 complete: {output_dir}")
     print("No scalar-compressibility result was calculated.")
-    print("Review support_diagnostics.csv before freezing P0^C.")
+    print("Primary support rule: consecutive P1>=1 with n_eff_Kish>=100 in every city.")
 
 
 def main() -> None:
