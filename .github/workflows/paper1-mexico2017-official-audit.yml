@@ -1,0 +1,51 @@
+name: Paper I — Mexico 2017 official diary audit
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/audit_mexico2017_official.py'
+      - '.github/workflows/paper1-mexico2017-official-audit.yml'
+
+jobs:
+  audit-mexico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout without LFS hydration
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install pandas requests
+
+      - name: Audit official INEGI EOD 2017
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m scripts.audit_mexico2017_official \
+            --output-dir outputs/mexico_2017_official_audit \
+            2>&1 | tee mexico2017-official-audit.log
+
+      - name: Upload aggregate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper1-mexico2017-official-audit
+          path: |
+            mexico2017-official-audit.log
+            outputs/mexico_2017_official_audit/mexico2017_official_audit.json
+            outputs/mexico_2017_official_audit/tripcount_consistency.csv
+            outputs/mexico_2017_official_audit/home_semantics_crosstab.csv
+            outputs/mexico_2017_official_audit/time_field_qa.csv
+            outputs/mexico_2017_official_audit/residence_expansion.csv
+            outputs/mexico_2017_official_audit/declared_weekday_trip_distribution.csv
+            outputs/mexico_2017_official_audit/observed_weekday_trip_distribution.csv
+          if-no-files-found: warn
+          retention-days: 14
