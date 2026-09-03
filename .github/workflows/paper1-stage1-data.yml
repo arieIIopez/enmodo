@@ -52,6 +52,7 @@ jobs:
             outputs/paper1_stage1/person_day_qa.csv
             outputs/paper1_stage1/purpose_counts.csv
             outputs/paper1_stage1/support_diagnostics.csv
+            outputs/paper1_stage1/support_rule_evaluation.csv
             outputs/paper1_stage1/time_participation_cells_unfrozen.csv
             outputs/paper1_stage1/run_metadata.json
           if-no-files-found: warn
