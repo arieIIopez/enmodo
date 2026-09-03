@@ -43,6 +43,7 @@ jobs:
             outputs/bogota_2015_domain_audit/encuestas_schema.csv
             outputs/bogota_2015_domain_audit/candidate_value_counts.csv
             outputs/bogota_2015_domain_audit/domain_weight_summary.csv
+            outputs/bogota_2015_domain_audit/weight_candidate_sums.csv
             outputs/bogota_2015_domain_audit/domain_audit_metadata.json
           if-no-files-found: warn
           retention-days: 14
