@@ -73,7 +73,12 @@ def _composite_key(df: pd.DataFrame, columns: list[str]) -> pd.Series:
 
 
 def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
-    """Parse survey clock fields to minutes from midnight."""
+    """Parse survey clock fields to minutes from midnight.
+
+    Exact 24:00[:00] is accepted as 1440 minutes because the Bogotá instrument
+    uses it to denote midnight at the end of the diary day. Other 24:xx values
+    remain invalid.
+    """
     if series.isna().any():
         raise ValueError(f"{label}: contains missing clock values")
 
@@ -87,8 +92,11 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
             if 0 <= x < 1:
                 values.append(x * 1440.0)
                 continue
-            if 0 <= x <= 2359 and float(x).is_integer():
+            if 0 <= x <= 2400 and float(x).is_integer():
                 hhmm = int(x)
+                if hhmm == 2400:
+                    values.append(1440.0)
+                    continue
                 hh, mm = divmod(hhmm, 100)
                 if 0 <= hh <= 23 and 0 <= mm <= 59:
                     values.append(float(hh * 60 + mm))
@@ -102,6 +110,9 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
         h = int(match.group("h"))
         m = int(match.group("m"))
         s = float(match.group("s")) if match.group("s") is not None else 0.0
+        if h == 24 and m == 0 and s == 0:
+            values.append(1440.0)
+            continue
         if not (0 <= h <= 23 and 0 <= m <= 59 and 0 <= s < 60):
             raise ValueError(f"{label}: invalid clock value {value!r}")
         values.append(h * 60.0 + m + s / 60.0)
