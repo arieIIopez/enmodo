@@ -8,8 +8,9 @@ and city×P1 support diagnostics needed to freeze the confirmatory support.
 Prerequisite:
     bash scripts/hydrate_paper1_lfs.sh
 
-Then:
+Then, from the repository root, either command is supported:
     python scripts/run_paper1_pilot_stage1.py
+    python -m scripts.run_paper1_pilot_stage1
 
 Outputs are written under `outputs/paper1_stage1/` and ignored by Git.
 """
@@ -22,9 +23,18 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 import numpy as np
 import pandas as pd
+
+
+# Direct execution (`python scripts/run_paper1_pilot_stage1.py`) places
+# `scripts/` rather than the repository root at sys.path[0]. Add ROOT before
+# importing the package so direct execution and `python -m` behave identically.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from scripts.mobility_function import estimate_time_participation_curve
 from scripts.paper1_adapters import (
@@ -43,8 +53,6 @@ from scripts.person_universe import (
 )
 from scripts.support_diagnostics import support_diagnostics
 
-
-ROOT = Path(__file__).resolve().parents[1]
 
 PATHS = {
     "mexico_trips": ROOT / "ciudad-de-mexico/viajes_personas_mexico_2017.csv",
