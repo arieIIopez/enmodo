@@ -3,6 +3,7 @@ name: Paper I methodological tests
 on:
   push:
     paths:
+      - 'scripts/__init__.py'
       - 'scripts/scalar_compressibility.py'
       - 'scripts/reference_distributions.py'
       - 'scripts/support_diagnostics.py'
@@ -12,6 +13,7 @@ on:
       - 'scripts/paper1_adapters.py'
       - 'scripts/survey_bootstrap.py'
       - 'scripts/kitagawa_mobility.py'
+      - 'scripts/run_paper1_pilot_stage1.py'
       - 'tests/test_scalar_compressibility.py'
       - 'tests/test_reference_distributions.py'
       - 'tests/test_mobility_function.py'
@@ -60,6 +62,11 @@ jobs:
             tests/test_survey_bootstrap.py \
             tests/test_kitagawa_mobility.py \
             2>&1 | tee paper1-pytest.log
+
+      - name: Smoke-test stage-1 runner imports
+        run: |
+          python scripts/run_paper1_pilot_stage1.py --help >/dev/null
+          python -m scripts.run_paper1_pilot_stage1 --help >/dev/null
 
       - name: Upload pytest diagnostics
         if: always()
