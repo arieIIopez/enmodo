@@ -1,0 +1,64 @@
+name: Paper I — discover official EOD sources
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/paper1-official-source-discovery.yml'
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Inspect official download pages
+        shell: bash
+        run: |
+          set -u
+          : > official-source-discovery.log
+
+          inspect() {
+            local label="$1" url="$2"
+            echo "===== $label =====" | tee -a official-source-discovery.log
+            echo "URL: $url" | tee -a official-source-discovery.log
+            tmp="$(mktemp)"
+            code="$(curl -L -A 'Mozilla/5.0' -sS -o "$tmp" -w '%{http_code}' --max-time 30 "$url" || true)"
+            echo "HTTP: $code" | tee -a official-source-discovery.log
+            echo "BYTES: $(wc -c < "$tmp")" | tee -a official-source-discovery.log
+            echo "-- candidate absolute URLs --" | tee -a official-source-discovery.log
+            grep -Eo 'https?://[^"'"' <>]+' "$tmp" \
+              | sed 's/&amp;/\&/g' \
+              | grep -Ei '(csv|zip|xlsx|xls|mdb|accdb|rar|7z|datos|base|eod|encuesta|download|descarga)' \
+              | sort -u | head -n 300 | tee -a official-source-discovery.log || true
+            echo "-- candidate hrefs --" | tee -a official-source-discovery.log
+            grep -Eoi 'href=["'"'][^"'"']+["'"']' "$tmp" \
+              | sed -E 's/^href=["'"']//I; s/["'"']$//' \
+              | sed 's/&amp;/\&/g' \
+              | grep -Ei '(csv|zip|xlsx|xls|mdb|accdb|rar|7z|datos|base|eod|encuesta|download|descarga)' \
+              | sort -u | head -n 300 | tee -a official-source-discovery.log || true
+            echo "-- nearby text --" | tee -a official-source-discovery.log
+            grep -Ein -C 2 '(Base de Datos|Datos abiertos|CSV|Descargar|descarga|microdatos|EOD)' "$tmp" \
+              | head -n 400 | tee -a official-source-discovery.log || true
+            echo | tee -a official-source-discovery.log
+            rm -f "$tmp"
+          }
+
+          inspect 'SECTRA EOD Santiago 2012' \
+            'https://www.sectra.gob.cl/info-territorial/region-metropolitana-de-santiago/'
+          inspect 'INEGI EOD 2017' \
+            'https://www.inegi.org.mx/programas/eod/2017/'
+          inspect 'Bogota SIMUR encuestas' \
+            'https://www.simur.gov.co/encuestas-de-movilidad'
+
+      - name: Upload source discovery log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper1-official-source-discovery
+          path: official-source-discovery.log
+          retention-days: 14
