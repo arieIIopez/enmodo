@@ -1,0 +1,123 @@
+name: Paper I — Santiago 2012 ACCDB audit
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/paper1-santiago2012-accdb-audit.yml'
+
+jobs:
+  audit-accdb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout without LFS hydration
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Access and download tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mdbtools unzip
+          python -m pip install gdown
+
+      - name: Download, verify and inspect official ACCDB
+        shell: bash
+        run: |
+          set -o pipefail
+          python - <<'PY' 2>&1 | tee santiago2012-accdb-audit.log
+          from __future__ import annotations
+          import hashlib
+          from pathlib import Path
+          import subprocess
+          import zipfile
+          import gdown
+
+          DRIVE_ID = "193675NwL6QNDs6VJFHU0mXiX5-6SdBPJ"
+          EXPECTED_SHA256 = "9713973955941175d3b45d1cf2fe5c9b97437c3cb95b27b31484b93e97c15373"
+          archive = Path("/tmp/sectra_santiago2012.zip")
+          work = Path("/tmp/sectra_santiago2012")
+          work.mkdir(parents=True, exist_ok=True)
+
+          result = gdown.download(id=DRIVE_ID, output=str(archive), quiet=False)
+          if not result or not archive.exists():
+              raise RuntimeError("SECTRA Base de Datos download failed")
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          print(f"ARCHIVE_SHA256: {digest}")
+          if digest != EXPECTED_SHA256:
+              raise ValueError(f"SECTRA archive changed: {digest}")
+
+          with zipfile.ZipFile(archive) as zf:
+              zf.extractall(work)
+          dbs = list(work.rglob("*.accdb"))
+          if len(dbs) != 1:
+              raise ValueError(f"Expected one ACCDB, found {dbs}")
+          db = dbs[0]
+          print(f"ACCDB: {db.name}")
+          print(f"ACCDB_BYTES: {db.stat().st_size}")
+
+          tables_raw = subprocess.check_output(["mdb-tables", "-1", str(db)], text=True, errors="replace")
+          tables = [x.strip() for x in tables_raw.splitlines() if x.strip()]
+          print(f"TABLE_COUNT: {len(tables)}")
+          Path("santiago2012-accdb-tables.txt").write_text("\n".join(tables) + "\n", encoding="utf-8")
+
+          header_lines = ["table\theader"]
+          schema_lines = []
+          for table in tables:
+              print(f"TABLE: {table}")
+              proc = subprocess.Popen(
+                  ["mdb-export", str(db), table],
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+                  text=True,
+                  errors="replace",
+              )
+              assert proc.stdout is not None
+              header = proc.stdout.readline().rstrip("\n\r")
+              proc.terminate()
+              try:
+                  proc.wait(timeout=5)
+              except subprocess.TimeoutExpired:
+                  proc.kill()
+              header_lines.append(f"{table}\t{header}")
+              print(f"HEADER: {header[:2500]}")
+
+              # Schema excerpts make Access field types and exact names auditable.
+              try:
+                  schema = subprocess.check_output(
+                      ["mdb-schema", "-T", table, str(db), "postgres"],
+                      text=True,
+                      errors="replace",
+                      stderr=subprocess.STDOUT,
+                      timeout=20,
+                  )
+              except Exception as exc:
+                  schema = f"SCHEMA_ERROR {type(exc).__name__}: {exc}"
+              schema_lines.append(f"===== {table} =====\n{schema[:12000]}")
+
+          Path("santiago2012-accdb-headers.tsv").write_text(
+              "\n".join(header_lines) + "\n", encoding="utf-8"
+          )
+          Path("santiago2012-accdb-schema.txt").write_text(
+              "\n\n".join(schema_lines) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Upload aggregate schema inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper1-santiago2012-accdb-audit
+          path: |
+            santiago2012-accdb-audit.log
+            santiago2012-accdb-tables.txt
+            santiago2012-accdb-headers.tsv
+            santiago2012-accdb-schema.txt
+          if-no-files-found: warn
+          retention-days: 14
