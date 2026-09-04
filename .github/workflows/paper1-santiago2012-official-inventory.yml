@@ -1,0 +1,101 @@
+name: Paper I — Santiago 2012 official-source inventory
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/paper1-santiago2012-official-inventory.yml'
+
+jobs:
+  inventory-santiago2012:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout without LFS hydration
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install download/inventory dependencies
+        run: python -m pip install gdown py7zr
+
+      - name: Download and inventory SECTRA Base de Datos
+        shell: bash
+        run: |
+          set -o pipefail
+          python - <<'PY' 2>&1 | tee santiago2012-official-inventory.log
+          from __future__ import annotations
+          import hashlib
+          import os
+          from pathlib import Path
+          import subprocess
+          import zipfile
+          import py7zr
+          import gdown
+
+          # Link is labelled exactly "Base de Datos" on SECTRA's official
+          # Región Metropolitana de Santiago page.
+          source_page = "https://www.sectra.gob.cl/info-territorial/region-metropolitana-de-santiago/"
+          drive_id = "193675NwL6QNDs6VJFHU0mXiX5-6SdBPJ"
+          drive_url = f"https://drive.google.com/file/d/{drive_id}/view?usp=drive_link"
+          out = Path("/tmp/sectra_santiago2012_base")
+
+          print(f"SOURCE_PAGE: {source_page}")
+          print("SOURCE_LABEL: Base de Datos")
+          print(f"DRIVE_ID: {drive_id}")
+          print(f"DRIVE_URL: {drive_url}")
+          result = gdown.download(id=drive_id, output=str(out), quiet=False)
+          if not result or not out.exists():
+              raise RuntimeError("gdown did not produce the SECTRA base file")
+
+          raw = out.read_bytes()
+          print(f"BYTES: {len(raw)}")
+          print(f"SHA256: {hashlib.sha256(raw).hexdigest()}")
+          print(f"MAGIC_HEX: {raw[:32].hex()}")
+          desc = subprocess.check_output(["file", "-b", str(out)], text=True).strip()
+          print(f"FILE_TYPE: {desc}")
+
+          def sniff_text(blob: bytes) -> str:
+              for enc in ("utf-8-sig", "latin-1", "cp1252"):
+                  try:
+                      return blob.decode(enc)
+                  except UnicodeDecodeError:
+                      pass
+              return blob.decode("utf-8", errors="replace")
+
+          if zipfile.is_zipfile(out):
+              print("ARCHIVE: zip")
+              with zipfile.ZipFile(out) as zf:
+                  names = zf.namelist()
+                  print(f"ENTRIES: {len(names)}")
+                  for name in names:
+                      info = zf.getinfo(name)
+                      print(f"ENTRY\t{info.file_size}\t{name}")
+                      if info.file_size and name.lower().endswith((".csv", ".txt")):
+                          with zf.open(name) as fh:
+                              sample = fh.read(8192)
+                          text = sniff_text(sample)
+                          first = text.splitlines()[0] if text.splitlines() else ""
+                          print(f"HEADER\t{name}\t{first[:1500]}")
+          elif py7zr.is_7zfile(out):
+              print("ARCHIVE: 7z")
+              with py7zr.SevenZipFile(out, mode="r") as z:
+                  for info in z.list():
+                      print(f"ENTRY\t{info.uncompressed}\t{info.filename}")
+          else:
+              print("ARCHIVE: unknown_or_single_file")
+          PY
+
+      - name: Upload inventory log only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper1-santiago2012-official-inventory
+          path: santiago2012-official-inventory.log
+          if-no-files-found: warn
+          retention-days: 14
