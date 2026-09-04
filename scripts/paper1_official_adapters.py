@@ -1,9 +1,8 @@
 """Direct adapters from official EOD source tables to Paper I person-days.
 
-This module is the preferred architecture for Paper I. It avoids depending on
-historical ENMODO `viajes_personas` intermediate files, several of whose Git LFS
-objects are no longer available. Official survey tables are joined and
-transformed explicitly, with historical notebooks used only to audit semantics.
+This module avoids historical ENMODO ``viajes_personas`` intermediates. Official
+survey tables are joined and transformed explicitly, with historical notebooks
+and dedicated audits used only to verify source semantics.
 """
 
 from __future__ import annotations
@@ -27,6 +26,9 @@ class OfficialAdapterAudit:
     source_person_rows: int
     travelling_persons: int
     missing_day_flag_rows: int = 0
+    workday_households: int = 0
+    nonworkday_households: int = 0
+    workday_universe_persons: int = 0
     notes: str = ""
 
 
@@ -42,13 +44,14 @@ def _normalize_text(value: object) -> str:
     return "".join(ch for ch in text if not unicodedata.combining(ch))
 
 
-def _numeric_decimal_comma(series: pd.Series, label: str) -> pd.Series:
-    """Parse numeric values, allowing either comma or point decimals.
+def _normalize_id(series: pd.Series) -> pd.Series:
+    if series.isna().any():
+        raise ValueError("identifier contains missing values")
+    return series.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
 
-    Historical ENMODO notebooks for Bogotá converted comma decimals by replacing
-    `,` with `.` and did not apply a thousands-separator rule. We preserve that
-    behaviour rather than guessing locale-specific grouping.
-    """
+
+def _numeric_decimal_comma(series: pd.Series, label: str) -> pd.Series:
+    """Parse numeric values, preserving the historical decimal-comma rule."""
     if pd.api.types.is_numeric_dtype(series):
         out = pd.to_numeric(series, errors="coerce")
     else:
@@ -60,12 +63,7 @@ def _numeric_decimal_comma(series: pd.Series, label: str) -> pd.Series:
 
 
 def _composite_key(df: pd.DataFrame, columns: list[str]) -> pd.Series:
-    parts: list[pd.Series] = []
-    for col in columns:
-        if df[col].isna().any():
-            raise ValueError(f"composite key column {col!r} contains missing values")
-        s = df[col].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
-        parts.append(s)
+    parts = [_normalize_id(df[col]) for col in columns]
     key = parts[0]
     for part in parts[1:]:
         key = key + "::" + part
@@ -75,9 +73,8 @@ def _composite_key(df: pd.DataFrame, columns: list[str]) -> pd.Series:
 def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
     """Parse survey clock fields to minutes from midnight.
 
-    Exact 24:00[:00] is accepted as 1440 minutes because the Bogotá instrument
-    uses it to denote midnight at the end of the diary day. Other 24:xx values
-    remain invalid.
+    Exact 24:00[:00] is accepted as 1440 because the Bogotá delivery uses it to
+    denote midnight at the end of the diary day. Other 24:xx values are invalid.
     """
     if series.isna().any():
         raise ValueError(f"{label}: contains missing clock values")
@@ -92,7 +89,7 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
             if 0 <= x < 1:
                 values.append(x * 1440.0)
                 continue
-            if 0 <= x <= 2400 and float(x).is_integer():
+            if 0 <= x <= 2400 and x.is_integer():
                 hhmm = int(x)
                 if hhmm == 2400:
                     values.append(1440.0)
@@ -119,13 +116,11 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
     return pd.Series(values, index=series.index, dtype=float)
 
 
-def _workday_mask(series: pd.Series, city: str) -> tuple[pd.Series, int]:
-    """Select DIA_HABIL == yes, matching the historical notebook semantics.
+def _day_flag_masks(series: pd.Series, city: str) -> tuple[pd.Series, pd.Series, int]:
+    """Decode DIA_HABIL without imputing missing day assignments.
 
-    The original notebook mapped S->Si, N->No and every other value (including
-    missing values) to `Sin dato`, then retained only `DIA_HABIL == 'Si'`.
-    Missing/blank flags are therefore excluded, never imputed. Unexpected
-    non-missing codes still fail loudly because they may indicate a schema change.
+    The historical notebook mapped S->Si, N->No and missing/other empty values
+    to ``Sin dato``. Unexpected non-missing codes still fail loudly.
     """
     missing = series.isna() | series.astype("string").str.strip().eq("")
     norm = series.loc[~missing].map(_normalize_text)
@@ -134,40 +129,41 @@ def _workday_mask(series: pd.Series, city: str) -> tuple[pd.Series, int]:
     unknown = sorted(set(norm.unique()).difference(yes | no))
     if unknown:
         raise ValueError(f"{city}: unsupported non-missing DIA_HABIL values {unknown[:20]}")
-    mask = pd.Series(False, index=series.index, dtype=bool)
-    mask.loc[~missing] = norm.isin(yes)
-    return mask, int(missing.sum())
+    yes_mask = pd.Series(False, index=series.index, dtype=bool)
+    no_mask = pd.Series(False, index=series.index, dtype=bool)
+    yes_mask.loc[~missing] = norm.isin(yes)
+    no_mask.loc[~missing] = norm.isin(no)
+    return yes_mask, no_mask, int(missing.sum())
 
 
 def prepare_bogota_2015_official(
     trips: pd.DataFrame,
     persons: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, OfficialAdapterAudit]:
-    """Build a canonical workday trip table directly from official 2015 XLSX.
+    """Build Bogotá 2015 workday trips and the matching person universe.
 
-    Historical ENMODO semantics audited from the original notebook:
-    - trip/person key: ID_ENCUESTA + NUMERO_PERSONA
-    - trip order/id: NUMERO_VIAJE
-    - purpose: MOTIVOVIAJE (including literal `Volver a casa`)
-    - workday flag: DIA_HABIL; missing flags are excluded as `Sin dato`
-    - duration: HORA_FIN - HORA_INICIO, adding 24 h when end < start
-    - primary person weight: PONDERADOR_CALIBRADO from the PERSON table
+    The official delivery contains two separately calibrated household
+    subsamples: weekday and non-weekday. The primary workday universe therefore
+    consists of *all persons in households assigned to the weekday subsample*,
+    including persons with zero trips. A person from the non-weekday subsample
+    must never be labelled a weekday non-traveller.
+
+    Day assignment is reconstructed at household level from explicit DIA_HABIL
+    trip flags. The real-data audit established that every household has trip
+    evidence and no household mixes weekday and non-weekday flags. This function
+    enforces the no-mixing condition and retains missing trip flags as QA only.
     """
     city = "Bogotá 2015"
     trip_required = [
-        "ID_ENCUESTA",
-        "NUMERO_PERSONA",
-        "NUMERO_VIAJE",
-        "MOTIVOVIAJE",
-        "HORA_INICIO",
-        "HORA_FIN",
-        "DIA_HABIL",
+        "ID_ENCUESTA", "NUMERO_PERSONA", "NUMERO_VIAJE", "MOTIVOVIAJE",
+        "HORA_INICIO", "HORA_FIN", "DIA_HABIL",
     ]
     person_required = ["ID_ENCUESTA", "NUMERO_PERSONA", "PONDERADOR_CALIBRADO"]
     _require(trips, trip_required, f"{city} official trips")
     _require(persons, person_required, f"{city} official persons")
 
     p = persons.copy()
+    p["_household_key"] = _normalize_id(p["ID_ENCUESTA"])
     p["_person_key"] = _composite_key(p, ["ID_ENCUESTA", "NUMERO_PERSONA"])
     if p.duplicated("_person_key").any():
         examples = p.loc[p.duplicated("_person_key", keep=False), "_person_key"].head(10).tolist()
@@ -178,10 +174,21 @@ def prepare_bogota_2015_official(
     if (p["_paper1_weight"] < 0).any():
         raise ValueError(f"{city}: person weights must be non-negative")
 
-    workday_mask, missing_day_flag_rows = _workday_mask(trips["DIA_HABIL"], city)
+    workday_mask, nonworkday_mask, missing_day_flag_rows = _day_flag_masks(
+        trips["DIA_HABIL"], city
+    )
+    trip_households = _normalize_id(trips["ID_ENCUESTA"])
+    workday_households = set(trip_households.loc[workday_mask])
+    nonworkday_households = set(trip_households.loc[nonworkday_mask])
+    mixed = sorted(workday_households.intersection(nonworkday_households))
+    if mixed:
+        raise ValueError(
+            f"{city}: households mix weekday and non-weekday DIA_HABIL flags; examples={mixed[:10]}"
+        )
+    if not workday_households:
+        raise ValueError(f"{city}: no households assigned to workday subsample")
+
     t = trips.loc[workday_mask].copy()
-    if t.empty:
-        raise ValueError(f"{city}: no official workday trips selected")
     t["_person_key"] = _composite_key(t, ["ID_ENCUESTA", "NUMERO_PERSONA"])
     t["_start_minutes"] = _clock_minutes(t["HORA_INICIO"], f"{city} HORA_INICIO")
     t["_end_minutes"] = _clock_minutes(t["HORA_FIN"], f"{city} HORA_FIN")
@@ -191,16 +198,19 @@ def prepare_bogota_2015_official(
     if (t["duration_minutes"] < 0).any() or (~np.isfinite(t["duration_minutes"])).any():
         raise ValueError(f"{city}: invalid reconstructed trip durations")
 
-    meta = p[["_person_key", "_paper1_weight"]].copy()
-    t = t.merge(meta, on="_person_key", how="left", validate="many_to_one")
+    t = t.merge(
+        p[["_person_key", "_paper1_weight"]],
+        on="_person_key",
+        how="left",
+        validate="many_to_one",
+    )
     if t["_paper1_weight"].isna().any():
         examples = t.loc[t["_paper1_weight"].isna(), "_person_key"].head(10).tolist()
         raise ValueError(f"{city}: workday travellers missing from person table; examples={examples}")
 
     if t["MOTIVOVIAJE"].isna().any():
         raise ValueError(f"{city}: missing MOTIVOVIAJE in selected workday trips")
-    purpose_norm = t["MOTIVOVIAJE"].map(_normalize_text)
-    if not purpose_norm.eq("volver a casa").any():
+    if not t["MOTIVOVIAJE"].map(_normalize_text).eq("volver a casa").any():
         raise ValueError(f"{city}: literal 'Volver a casa' absent; purpose semantics must be audited")
 
     canonical = pd.DataFrame(
@@ -210,13 +220,15 @@ def prepare_bogota_2015_official(
             "duration_minutes": t["duration_minutes"].astype(float),
             "purpose": t["MOTIVOVIAJE"].astype(str).str.strip(),
             "person_weight": t["_paper1_weight"].astype(float),
-            "ID_ENCUESTA": t["ID_ENCUESTA"].astype(str).str.replace(r"\.0$", "", regex=True),
-            "NUMERO_PERSONA": t["NUMERO_PERSONA"].astype(str).str.replace(r"\.0$", "", regex=True),
+            "ID_ENCUESTA": _normalize_id(t["ID_ENCUESTA"]),
+            "NUMERO_PERSONA": _normalize_id(t["NUMERO_PERSONA"]),
             "NUMERO_VIAJE": t["NUMERO_VIAJE"],
         }
     )
 
-    persons_for_universe = p.copy()
+    persons_for_universe = p.loc[p["_household_key"].isin(workday_households)].copy()
+    if persons_for_universe.empty:
+        raise ValueError(f"{city}: workday household universe is empty")
     persons_for_universe["PONDERADOR_CALIBRADO"] = persons_for_universe["_paper1_weight"]
 
     audit = OfficialAdapterAudit(
@@ -226,9 +238,13 @@ def prepare_bogota_2015_official(
         source_person_rows=int(len(persons)),
         travelling_persons=int(canonical["person_id"].nunique()),
         missing_day_flag_rows=missing_day_flag_rows,
+        workday_households=int(len(workday_households)),
+        nonworkday_households=int(len(nonworkday_households)),
+        workday_universe_persons=int(len(persons_for_universe)),
         notes=(
-            "Direct official-source reconstruction; no historical viajes_personas dependency. "
-            "Missing/blank DIA_HABIL values excluded as historical 'Sin dato'."
+            "Direct official-source reconstruction. Workday universe is all persons in "
+            "households identified by explicit workday trip flags; separately calibrated "
+            "non-workday households are excluded, not treated as non-travellers."
         ),
     )
     return canonical, persons_for_universe, audit
@@ -254,7 +270,7 @@ def build_bogota_2015_from_official(
 
     selected_keys = canonical[["ID_ENCUESTA", "NUMERO_PERSONA"]].copy()
     universe_source = persons_for_universe.copy()
-    universe_source["ID_ENCUESTA"] = universe_source["ID_ENCUESTA"].astype(str).str.replace(r"\.0$", "", regex=True)
-    universe_source["NUMERO_PERSONA"] = universe_source["NUMERO_PERSONA"].astype(str).str.replace(r"\.0$", "", regex=True)
+    universe_source["ID_ENCUESTA"] = _normalize_id(universe_source["ID_ENCUESTA"])
+    universe_source["NUMERO_PERSONA"] = _normalize_id(universe_source["NUMERO_PERSONA"])
     universe, universe_audit = bogota_2015_person_universe(universe_source, selected_keys)
     return person_days, universe, audit, universe_audit
