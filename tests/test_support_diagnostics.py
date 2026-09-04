@@ -55,6 +55,10 @@ def test_preregistered_thresholds_are_fixed_and_ordered():
 
 def test_contiguous_support_rejects_noninteger_participation():
     bad = _diagnostics().copy()
+    # Pandas 3.0 rejects assigning a non-integer value into an int64 column
+    # before the validator under test can see it. Cast explicitly so this test
+    # continues to exercise the intended semantic guard.
+    bad["r"] = bad["r"].astype(float)
     bad.loc[bad.index[0], "r"] = 0.5
     with pytest.raises(ValueError, match="integer-valued"):
         contiguous_estimable_support(bad, min_effective_n=100, start_r=1)
