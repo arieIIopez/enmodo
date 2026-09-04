@@ -1,0 +1,81 @@
+name: Paper I — Santiago 2012 official microdata audit
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/audit_santiago2012_official.py'
+      - '.github/workflows/paper1-santiago2012-official-audit.yml'
+
+jobs:
+  audit-santiago2012:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout without LFS hydration
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Access and Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mdbtools unzip
+          python -m pip install numpy pandas gdown
+
+      - name: Download and verify official SECTRA database
+        shell: bash
+        run: |
+          set -o pipefail
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          import zipfile
+          import gdown
+
+          drive_id = "193675NwL6QNDs6VJFHU0mXiX5-6SdBPJ"
+          expected = "9713973955941175d3b45d1cf2fe5c9b97437c3cb95b27b31484b93e97c15373"
+          archive = Path("/tmp/sectra_santiago2012.zip")
+          out = Path("/tmp/sectra_santiago2012")
+          out.mkdir(parents=True, exist_ok=True)
+          result = gdown.download(id=drive_id, output=str(archive), quiet=False)
+          if not result or not archive.exists():
+              raise RuntimeError("SECTRA Base de Datos download failed")
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          print(f"SHA256={digest}")
+          if digest != expected:
+              raise ValueError(f"SECTRA archive changed: {digest}")
+          with zipfile.ZipFile(archive) as zf:
+              zf.extractall(out)
+          dbs = list(out.rglob("*.accdb"))
+          if len(dbs) != 1:
+              raise ValueError(f"Expected one ACCDB, got {dbs}")
+          Path("santiago2012-db-path.txt").write_text(str(dbs[0]), encoding="utf-8")
+          PY
+
+      - name: Run aggregate official-source audit
+        shell: bash
+        run: |
+          set -o pipefail
+          DB="$(cat santiago2012-db-path.txt)"
+          python -m scripts.audit_santiago2012_official \
+            --database "$DB" \
+            --output-dir outputs/santiago_2012_official_audit \
+            2>&1 | tee santiago2012-official-audit.log
+
+      - name: Upload aggregate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper1-santiago2012-official-audit
+          path: |
+            santiago2012-official-audit.log
+            outputs/santiago_2012_official_audit/*.csv
+            outputs/santiago_2012_official_audit/*.json
+          if-no-files-found: warn
+          retention-days: 14
