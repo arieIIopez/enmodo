@@ -13,6 +13,7 @@ on:
       - 'scripts/person_universe.py'
       - 'scripts/paper1_adapters.py'
       - 'scripts/paper1_official_adapters.py'
+      - 'scripts/mexico2017_official_adapter.py'
       - 'scripts/survey_bootstrap.py'
       - 'scripts/kitagawa_mobility.py'
       - 'scripts/run_paper1_pilot_stage1.py'
@@ -24,6 +25,7 @@ on:
       - 'tests/test_person_universe.py'
       - 'tests/test_paper1_adapters.py'
       - 'tests/test_paper1_official_adapters.py'
+      - 'tests/test_mexico2017_official_adapter.py'
       - 'tests/test_survey_bootstrap.py'
       - 'tests/test_kitagawa_mobility.py'
       - '.github/workflows/paper1-methods-tests.yml'
@@ -54,7 +56,9 @@ jobs:
           python -m pip install numpy pandas pytest
 
       - name: Run Paper I methodological tests
+        shell: bash
         run: |
+          set -o pipefail
           python -m pytest -q \
             --junitxml=paper1-pytest.xml \
             tests/test_scalar_compressibility.py \
@@ -65,6 +69,7 @@ jobs:
             tests/test_person_universe.py \
             tests/test_paper1_adapters.py \
             tests/test_paper1_official_adapters.py \
+            tests/test_mexico2017_official_adapter.py \
             tests/test_survey_bootstrap.py \
             tests/test_kitagawa_mobility.py \
             2>&1 | tee paper1-pytest.log
