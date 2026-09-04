@@ -15,7 +15,7 @@ def _persons():
     )
 
 
-def test_bogota_official_reconstructs_daily_time_and_p1():
+def test_bogota_official_reconstructs_daily_time_and_workday_household_universe():
     trips = pd.DataFrame(
         {
             "ID_ENCUESTA": [10, 10, 10, 20],
@@ -34,6 +34,9 @@ def test_bogota_official_reconstructs_daily_time_and_p1():
     assert audit.selected_trip_rows == 3
     assert audit.travelling_persons == 1
     assert audit.missing_day_flag_rows == 0
+    assert audit.workday_households == 1
+    assert audit.nonworkday_households == 1
+    assert audit.workday_universe_persons == 2
     assert len(person_days) == 1
     row = person_days.iloc[0]
     assert row.person_id == "10::1"
@@ -42,9 +45,12 @@ def test_bogota_official_reconstructs_daily_time_and_p1():
     assert row.n_home_returns == 1
     assert row.weight == 2.5
 
-    assert len(universe) == 3
+    # Household 20 belongs to the separately calibrated non-workday sample and
+    # must not be counted as a weekday non-traveller.
+    assert set(universe.person_id) == {"10::1", "10::2"}
     assert universe.travelled.sum() == 1
-    assert universe_audit.n_nontravellers == 2
+    assert universe_audit.n_nontravellers == 1
+    assert universe_audit.weighted_traveller_share == 2.5 / 5.5
 
 
 def test_bogota_official_excludes_missing_workday_flags_as_historical_sin_dato():
@@ -63,7 +69,24 @@ def test_bogota_official_excludes_missing_workday_flags_as_historical_sin_dato()
     assert audit.missing_day_flag_rows == 1
     assert audit.selected_trip_rows == 2
     assert set(person_days.person_id) == {"10::1"}
+    assert set(universe.person_id) == {"10::1", "10::2"}
     assert bool(universe.loc[universe.person_id == "10::2", "travelled"].iloc[0]) is False
+
+
+def test_bogota_official_rejects_household_mixing_day_types():
+    trips = pd.DataFrame(
+        {
+            "ID_ENCUESTA": [10, 10],
+            "NUMERO_PERSONA": [1, 2],
+            "NUMERO_VIAJE": [1, 1],
+            "MOTIVOVIAJE": ["Volver a casa", "Trabajar"],
+            "HORA_INICIO": ["18:00", "09:00"],
+            "HORA_FIN": ["18:30", "10:00"],
+            "DIA_HABIL": ["S", "N"],
+        }
+    )
+    with pytest.raises(ValueError, match="households mix weekday and non-weekday"):
+        build_bogota_2015_from_official(trips, _persons())
 
 
 def test_bogota_official_handles_overnight_trip():
