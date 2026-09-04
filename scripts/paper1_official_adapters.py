@@ -28,6 +28,7 @@ class OfficialAdapterAudit:
     missing_day_flag_rows: int = 0
     workday_households: int = 0
     nonworkday_households: int = 0
+    unassigned_households: int = 0
     workday_universe_persons: int = 0
     notes: str = ""
 
@@ -51,7 +52,6 @@ def _normalize_id(series: pd.Series) -> pd.Series:
 
 
 def _numeric_decimal_comma(series: pd.Series, label: str) -> pd.Series:
-    """Parse numeric values, preserving the historical decimal-comma rule."""
     if pd.api.types.is_numeric_dtype(series):
         out = pd.to_numeric(series, errors="coerce")
     else:
@@ -116,24 +116,18 @@ def _clock_minutes(series: pd.Series, label: str) -> pd.Series:
     return pd.Series(values, index=series.index, dtype=float)
 
 
-def _day_flag_masks(series: pd.Series, city: str) -> tuple[pd.Series, pd.Series, int]:
-    """Decode DIA_HABIL without imputing missing day assignments.
-
-    The historical notebook mapped S->Si, N->No and missing/other empty values
-    to ``Sin dato``. Unexpected non-missing codes still fail loudly.
-    """
+def _binary_yes_mask(series: pd.Series, city: str, field: str) -> tuple[pd.Series, pd.Series]:
+    """Decode an S/N-style survey flag without imputing missing values."""
     missing = series.isna() | series.astype("string").str.strip().eq("")
     norm = series.loc[~missing].map(_normalize_text)
     yes = {"s", "si", "1", "true"}
     no = {"n", "no", "0", "false"}
     unknown = sorted(set(norm.unique()).difference(yes | no))
     if unknown:
-        raise ValueError(f"{city}: unsupported non-missing DIA_HABIL values {unknown[:20]}")
-    yes_mask = pd.Series(False, index=series.index, dtype=bool)
-    no_mask = pd.Series(False, index=series.index, dtype=bool)
-    yes_mask.loc[~missing] = norm.isin(yes)
-    no_mask.loc[~missing] = norm.isin(no)
-    return yes_mask, no_mask, int(missing.sum())
+        raise ValueError(f"{city}: unsupported non-missing {field} values {unknown[:20]}")
+    mask = pd.Series(False, index=series.index, dtype=bool)
+    mask.loc[~missing] = norm.isin(yes)
+    return mask, missing
 
 
 def prepare_bogota_2015_official(
@@ -144,19 +138,19 @@ def prepare_bogota_2015_official(
 
     The official delivery contains two separately calibrated household
     subsamples: weekday and non-weekday. The primary workday universe therefore
-    consists of *all persons in households assigned to the weekday subsample*,
-    including persons with zero trips. A person from the non-weekday subsample
+    consists of all persons in households assigned to the weekday subsample,
+    including people with zero trips. A person from the non-weekday subsample
     must never be labelled a weekday non-traveller.
 
-    Day assignment is reconstructed at household level from explicit DIA_HABIL
-    trip flags. The real-data audit established that every household has trip
-    evidence and no household mixes weekday and non-weekday flags. This function
-    enforces the no-mixing condition and retains missing trip flags as QA only.
+    Household assignment is reconstructed from the two explicit trip flags
+    ``DIA_HABIL`` and ``DIA_NOHABIL``. Mixed or unassigned households fail
+    loudly, so the production rule encodes the structure verified by the
+    independent day-assignment audit rather than relying on a hidden assumption.
     """
     city = "Bogotá 2015"
     trip_required = [
         "ID_ENCUESTA", "NUMERO_PERSONA", "NUMERO_VIAJE", "MOTIVOVIAJE",
-        "HORA_INICIO", "HORA_FIN", "DIA_HABIL",
+        "HORA_INICIO", "HORA_FIN", "DIA_HABIL", "DIA_NOHABIL",
     ]
     person_required = ["ID_ENCUESTA", "NUMERO_PERSONA", "PONDERADOR_CALIBRADO"]
     _require(trips, trip_required, f"{city} official trips")
@@ -174,19 +168,32 @@ def prepare_bogota_2015_official(
     if (p["_paper1_weight"] < 0).any():
         raise ValueError(f"{city}: person weights must be non-negative")
 
-    workday_mask, nonworkday_mask, missing_day_flag_rows = _day_flag_masks(
-        trips["DIA_HABIL"], city
+    workday_mask, workday_missing = _binary_yes_mask(trips["DIA_HABIL"], city, "DIA_HABIL")
+    nonworkday_mask, nonworkday_missing = _binary_yes_mask(
+        trips["DIA_NOHABIL"], city, "DIA_NOHABIL"
     )
+    both_row_flags = workday_mask & nonworkday_mask
+    if both_row_flags.any():
+        raise ValueError(f"{city}: trip rows cannot be both DIA_HABIL and DIA_NOHABIL")
+
     trip_households = _normalize_id(trips["ID_ENCUESTA"])
     workday_households = set(trip_households.loc[workday_mask])
     nonworkday_households = set(trip_households.loc[nonworkday_mask])
     mixed = sorted(workday_households.intersection(nonworkday_households))
     if mixed:
         raise ValueError(
-            f"{city}: households mix weekday and non-weekday DIA_HABIL flags; examples={mixed[:10]}"
+            f"{city}: households mix weekday and non-weekday day flags; examples={mixed[:10]}"
         )
     if not workday_households:
         raise ValueError(f"{city}: no households assigned to workday subsample")
+
+    all_person_households = set(p["_household_key"])
+    assigned_households = workday_households | nonworkday_households
+    unassigned = sorted(all_person_households.difference(assigned_households))
+    if unassigned:
+        raise ValueError(
+            f"{city}: person households lack any weekday/non-weekday trip assignment; examples={unassigned[:10]}"
+        )
 
     t = trips.loc[workday_mask].copy()
     t["_person_key"] = _composite_key(t, ["ID_ENCUESTA", "NUMERO_PERSONA"])
@@ -231,20 +238,22 @@ def prepare_bogota_2015_official(
         raise ValueError(f"{city}: workday household universe is empty")
     persons_for_universe["PONDERADOR_CALIBRADO"] = persons_for_universe["_paper1_weight"]
 
+    missing_both_flags = int((workday_missing & nonworkday_missing).sum())
     audit = OfficialAdapterAudit(
         city=city,
         source_trip_rows=int(len(trips)),
         selected_trip_rows=int(len(canonical)),
         source_person_rows=int(len(persons)),
         travelling_persons=int(canonical["person_id"].nunique()),
-        missing_day_flag_rows=missing_day_flag_rows,
+        missing_day_flag_rows=missing_both_flags,
         workday_households=int(len(workday_households)),
         nonworkday_households=int(len(nonworkday_households)),
+        unassigned_households=int(len(unassigned)),
         workday_universe_persons=int(len(persons_for_universe)),
         notes=(
             "Direct official-source reconstruction. Workday universe is all persons in "
-            "households identified by explicit workday trip flags; separately calibrated "
-            "non-workday households are excluded, not treated as non-travellers."
+            "households identified by DIA_HABIL; separately calibrated DIA_NOHABIL households "
+            "are excluded rather than treated as weekday non-travellers."
         ),
     )
     return canonical, persons_for_universe, audit
