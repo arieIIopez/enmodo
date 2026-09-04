@@ -56,10 +56,10 @@ jobs:
             bogota2015-official-stage1.log
             outputs/bogota_2015_official_stage1/adapter_audit.csv
             outputs/bogota_2015_official_stage1/universe_audit.csv
+            outputs/bogota_2015_official_stage1/workday_universe_summary.csv
             outputs/bogota_2015_official_stage1/person_day_qa.csv
             outputs/bogota_2015_official_stage1/support_diagnostics.csv
             outputs/bogota_2015_official_stage1/time_participation_cells.csv
-            outputs/bogota_2015_official_stage1/official_benchmark_comparison.csv
             outputs/bogota_2015_official_stage1/run_metadata.json
           if-no-files-found: warn
           retention-days: 14
