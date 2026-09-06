@@ -16,6 +16,12 @@ Cada ciudad tiene carpetas llamadas `output-{file_extension}` o sólo con nombre
 
 En las carpetas `python` se encuentra 1 notebook por cada ciudad-año con el procesamiento de los indicadores, diferentes visualizaciones y la generación de los archivos de output. Este es el core del repositorio, donde esta el código que utiliza y genera los datos del mismo.
 
+# Metodología del coeficiente de movilidad
+
+La propuesta metodológica revisada, sus hipótesis, reglas de clasificación, estrategia de validación y estructura sugerida para un paper están documentadas en [`docs/metodologia_coeficiente_movilidad.md`](docs/metodologia_coeficiente_movilidad.md).
+
+El motor reproducible de la versión 2 está en [`scripts/mobility_coefficient.py`](scripts/mobility_coefficient.py). Conserva como ejes la cantidad diaria de viajes y su duración media, calcula el tiempo total como `cantidad × promedio`, incorpora personas con cero viajes, usa ponderación muestral y permite aplicar una frontera común a todos los subgrupos. Sus dependencias mínimas se instalan con `pip install -r requirements-methodology.txt`.
+
 # Ejecución notebooks
 
 Todas las notebooks consumen los datos publicados en este repositorio de Github, por lo cual las notebooks pueden correrse fácilmente luego de instalar las dependencias. Lo único que se debe reemplazar es el objeto `data_path` por el directorio donde se haya clonado el repositorio para luego poder importar el script `eod_analysis.py` con las siguientes celdas.
