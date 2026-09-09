@@ -9,7 +9,7 @@ on:
 
 jobs:
   audit-day-assignment:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, enmodo]
     timeout-minutes: 15
     steps:
       - name: Checkout without LFS hydration

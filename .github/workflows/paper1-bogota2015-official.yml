@@ -11,7 +11,7 @@ on:
 
 jobs:
   bogota2015:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, enmodo]
     timeout-minutes: 15
     steps:
       - name: Checkout without LFS hydration

@@ -8,7 +8,7 @@ on:
 
 jobs:
   audit-accdb:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, enmodo]
     timeout-minutes: 25
     steps:
       - name: Checkout without LFS hydration

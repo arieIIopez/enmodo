@@ -9,7 +9,7 @@ on:
 
 jobs:
   audit-santiago2012:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, enmodo]
     timeout-minutes: 30
     steps:
       - name: Checkout without LFS hydration
